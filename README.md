@@ -4,16 +4,17 @@ Open-source FoloToy AI Passport companion for Windows and Linux Hermes Agent.
 MIT application code, copyright 2026 Andy Wong. Independent community project,
 not an official FoloToy or NousResearch product.
 
-## Current milestone: everyday controls candidate
+## Current milestone: controls and voice transport candidate
 
 Built for ESP32-C3, 8 MB flash, no PSRAM, and ESP-IDF 5.5.3. The firmware adds
 connection diagnostics, saved target selection, bounded Pocket task browsing,
 read-only shortcuts, Usage reminders and local audio controls to the animated
 cat, battery gauge, phone setup and voice client.
 
-The combined controls and debug build passed app-only flash/readback and a
-bounded physical boot check: Linux status returned authenticated HTTP 200 and
-Usage decoded successfully, with all account feeds honestly unconfigured.
+The combined controls, debug and voice transport build passed app-only flash/readback and a
+bounded physical boot check: Linux status returned authenticated HTTP 200.
+The prior controls build established Usage decoding with feeds unconfigured.
+This candidate boot did not record a successful Usage decode.
 No Linux failures, fatal errors or Wi-Fi drops were observed in that window.
 NVS pairing, the bootloader and partition table were preserved. Exact source,
 hashes and acceptance limits are recorded in [verification](docs/VERIFICATION.md).
@@ -24,7 +25,11 @@ include credentials, recorded audio, transcription/reply bodies or real quotas.
 
 The checked Linux bridge advertises configured STT and TTS. That capability
 report does not establish successful microphone capture or a complete voice
-round trip; physical voice diagnosis and button/display acceptance remain open.
+round trip. An owner recording on the preceding build filled the four-frame audio
+queue during a slow upload. The candidate uses TCP_NODELAY and an awake Wi-Fi
+radio during capture/upload, then restores the prior power mode. Its queue and
+memory budget are unchanged. Physical upload improvement, end-to-end voice and
+button/display acceptance remain open.
 Tests use synthetic providers and do not spend model or speech allowance.
 Tailscale and router deployment are outside this firmware increment.
 

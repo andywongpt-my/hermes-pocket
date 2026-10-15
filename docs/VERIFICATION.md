@@ -1,67 +1,75 @@
 # Current publication verification: 2026-10-15
 
-The combined everyday-controls and debug firmware was built from source
-`fb12abd0f46e26b6b3cee9983491c9e5e2c42457` and app-only flashed at `0x10000`.
-Application size: 1,811,248 bytes. Application SHA256:
-`c4bbb374d23cdfd904bce7c5ed667118e46c91c396fe8008406f3593baf163bf`. Independent application and retained bootloader
-verification passed; the retained partition table was unchanged. NVS, pairing,
-other partitions and security settings were not written.
+The combined controls, debug and voice transport candidate was built from source
+`cc444950435a7af61fffeb1380df8b4001d8fcb8` and app-only flashed at `0x10000`.
+Application size: 1,813,216 bytes. Application SHA256:
+`4c45a917619bd7ece4d91cd11b1d59b27aa97eef914ca998b2000058523933fa`.
+Independent application and retained bootloader verification passed; the retained
+partition table was unchanged. NVS, pairing, other partitions and security settings
+were not written. This candidate is not yet a physically verified voice fix.
 
-- The final offline suite ran 168 unittest checks with zero failures/errors and
-  five Windows/environment skips. The simulator passed; the guarded runner
+- The final offline suite ran 170 unittest checks with zero failures/errors and
+  five Windows/environment skips. The simulator passed and the guarded runner
   recorded zero external-network attempts. Skips were the separate LVGL suite
-  and four Linux-only process-tree/symlink checks. GitHub's Linux jobs cover the
-  latter and render the UI using the pinned LVGL version.
-- A separate cached LVGL 9.5 build rendered all 42 firmware UI states at 240x320,
-  with the device's 24 KiB LVGL pool and assertions enabled. Representative
-  task/UTF-8/truncation, diagnostic, alert and audio controls were visually checked.
-  This is host rendering, not physical display/button acceptance.
+  and four Linux-only process-tree/symlink checks; Linux CI covers those cases.
+- The unchanged UI had previously rendered all 42 firmware states at 240x320
+  using cached LVGL 9.5, the device's 24 KiB pool and assertions enabled.
+  CI renders the current source again. Host rendering does not establish physical
+  display/button acceptance.
 - ESP-IDF 5.5.3 compilation and linking passed. The exact source manifest,
   normalized tested source and compiled control/debug symbols were checked.
-  SDK configuration and certificate/hostname/auth behavior were unchanged.
-- The physical boot window was 08:00:01-08:01:31 UTC on 2026-10-15.
-  The expected ELF identity reached `app_main`; 6 Linux HTTPS status
-  cycles passed across 58.6 seconds. Backend availability and STT
-  readiness were observed. There were zero observed Linux failure events,
-  unexpected resets, fatal errors or Wi-Fi drops during this bounded window.
-  Minimum observed post-request internal free heap was 45,268 bytes;
-  the minimum largest block was 32,768 bytes.
-  The selected Home target remained Windows, which was offline; Linux readiness
-  was measured independently. Home short OK selects Linux when that is intended.
-- The actual device received Linux Usage HTTP 200 and decoded it successfully.
-  All three provider states were `not_configured` with zero metrics. This proves
-  transport/parser integration; real quotas, resets and quota alerts remain
-  unavailable until supported feeds are configured.
-- Debug diagnostics remain in the combined application: target-scoped connection,
-  transport/TLS/verify codes and heap observations; voice capture reason/error,
-  duration/read/upload timing and queue peak; request stage/error/HTTP/duration;
-  and numeric Usage HTTP/decode/availability/metric counts. These diagnostic
-  messages contain no credentials, audio, transcription/reply bodies or real
-  allowance values. No recording or paid/model canary was triggered for validation.
-- Native tests cover actual main input handlers, wake/setup/long-release gesture
-  isolation, volume and cancellation handoff, task target/generation/sequence and
-  refresh races, fresh typed reminder metrics and reset transitions, idle HTTP
-  connection release, and active capture memory/cleanup. Task previews keep a
-  768-byte UTF-8 device bound and an 8000-byte serialized host response bound;
-  oversized metadata is rejected without changing identifiers or stored results.
-- The host source includes bounded Hermes speech-command workers and their
-  synthetic regression tests. The inspected Linux service advertises STT/TTS;
-  no successful owner-recorded end-to-end microphone/Hermes/playback round trip
-  has been established. The earlier capture failure's specific cause is still
-  unconfirmed; the numeric debug paths are available for the next owner recording.
-- Task browsing is limited to the latest twelve device-scoped Pocket tasks.
-  Live task execution, physical button/volume/battery/display acceptance and
-  target recovery across a physical selection/reboot remain unverified.
-  Todo has no supported read-only source. Volume/alerts/deduplication are
-  session-local; the selected target uses a separate validated NVS preference.
-- The narrow serialized task-preview/null-result host fix is source-tested here;
-  this firmware flash does not deploy or restart the separate host bridge.
-  Host deployment is a separate service-version gate. No account feed,
+  SDK configuration, TLS certificate/hostname validation, authentication,
+  timeouts, submission retry policy and the 22,000-byte audio budget are unchanged.
+- The physical boot window was 09:10:59-09:12:29 UTC on 2026-10-15.
+  The expected ELF identity reached `app_main`; 5 Linux HTTPS status
+  cycles passed across 46.8 seconds. Backend availability and STT readiness
+  were observed. There were zero Linux failure events, unexpected resets,
+  fatal errors or Wi-Fi drops in this bounded window. Minimum observed
+  post-request internal free heap was 45,192 bytes; the minimum largest
+  block was 32,768 bytes. This is idle readiness, not an audio stress test.
+- This bounded boot did not record a successful Usage decode. The preceding controls build established device Usage HTTP 200 and not_configured parsing; that source is unchanged, but this is not a new physical Usage acceptance.
+  Real quotas, resets and quota alerts remain unavailable until supported feeds are configured.
+- On the preceding controls build, an owner-triggered recording explicitly failed
+  because its four-frame queue filled. The safe diagnostic recorded a 1,175 ms
+  maximum upload against about 256 ms of queued PCM. The exact cause of that
+  physical upload delay remains unproven; the chunk handler's synthetic timing
+  does not measure the device's network path.
+- The candidate enables TCP_NODELAY on each connected HTTP socket and requests
+  an awake Wi-Fi radio only during capture/upload. It restores the exact previous
+  power mode before finish/STT/provider waits and on failures. Failed restoration
+  preserves the original mode for bounded worker recovery and blocks finish.
+  It keeps the four-frame queue and visible discard behavior without silently
+  dropping frames or retrying uncertain submissions.
+- Native worker regressions cover continuous synthetic 16 kHz PCM, a 200 ms
+  upload jitter, radio get/set/restore failures and eventual restoration. An
+  injected 1,175 ms stall still explicitly aborts without finish; it is not
+  relabeled a success. These checks do not prove real radio throughput.
+  Independent review findings were fixed and re-reviewed with no remaining
+  must-fix findings.
+- Safe numeric diagnostics retain target-scoped TLS/verify/heap, capture reason,
+  queue and request-stage timings, status and Usage decode counts. Slow chunk
+  logs additionally report connect, headers-sent and first-response elapsed
+  times plus TCP_NODELAY state. The headers-to-response span includes request
+  body transmission and server wait; it does not isolate either cost.
+  No credentials, audio, transcripts, reply bodies or real allowance values
+  are logged. No recording or paid/model canary was triggered by validation.
+- Main input/wake/setup/long-release, target selection, task generation/refresh,
+  typed Usage reminders, cancellation, volume and phase-based audio memory
+  cleanup regressions remain included. Task browsing is limited to twelve
+  device-scoped Pocket tasks, with a 768-byte UTF-8 device preview and an
+  8000-byte serialized host response bound. Todo has no supported read-only source.
+- The checked Linux service advertises STT/TTS. A successful owner-recorded
+  microphone/Hermes/playback round trip and physical upload improvement on this
+  candidate remain unverified. Physical button/volume/battery/display acceptance
+  and target selection across a physical reboot remain separate checks.
+- The narrow serialized task-preview/null-result host fix is source-tested;
+  this firmware flash does not deploy the separate host bridge. No account feed,
   credential, provider permission, router/Tailscale or TLS policy was changed.
+  Publication remains on the existing feature PR; main merge is not approved.
 
 This source package contains no firmware binaries, deployment receipts, raw logs,
-runtime configurations or provider credentials. Repository Actions records are
-the evidence for each published commit's Linux/offline and firmware CI checks.
+runtime configurations or provider credentials. Actions records provide the
+published commit's Linux/offline and firmware CI evidence.
 
 ## Historical records
 
