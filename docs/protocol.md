@@ -163,6 +163,19 @@ the three-provider array:
 }
 ```
 
+The device integration polls these read-only reports through the existing voice
+network worker after a successful idle status response. It reuses that worker's
+verified HTTPS client and 8 KiB response buffer, releases status JSON before
+parsing Usage, and polls each target at most once per 30 seconds. A queued voice
+request takes priority; capture, transcription/task waiting and playback do not
+poll Usage. No additional network task or concurrent TLS client is created.
+The idle connection closes after status/Usage processing, before the next poll
+wait, so it cannot outlive the bridge's keep-alive budget. Disconnected targets
+show unavailable data; failed Usage refreshes retain cached observations with an
+explicit failed/stale label. OK cycles the supplied windows on the existing
+Codex, Claude and Ollama rows. No account collector is enabled by this firmware
+or by the default bridge configuration.
+
 ## Linux speech relay source adapter
 
 pocket/linux_voice.py adds a server-side adapter for the documented dashboard
