@@ -7,6 +7,8 @@ import urllib.error
 from urllib.parse import urlsplit
 
 class TransportError(RuntimeError):pass
+class UpstreamRejected(TransportError):
+    """The upstream answered, but with an HTTP error or an unusable response."""
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):raise TransportError('upstream redirect refused')
 
@@ -37,12 +39,14 @@ class JSONTransport:
         req=urllib.request.Request(self.base+path,data=data,method=method,headers={**headers,'Authorization':'Bearer '+self._key,'Content-Type':'application/json','Accept':'application/json'})
         try:
             with self.opener.open(req,timeout=10) as response:
-                if response.status not in (200,202):raise TransportError('unexpected upstream status')
+                if response.status not in (200,202):raise UpstreamRejected('unexpected upstream status')
                 raw=response.read(262145)
-            if len(raw)>262144:raise TransportError('upstream response too large')
-            obj=json.loads(raw.decode('utf-8'),object_pairs_hook=unique,parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
-            if not isinstance(obj,dict):raise TransportError('invalid upstream response')
-            return obj
         except urllib.error.HTTPError as exc:
-            status=exc.code;exc.close();raise TransportError('upstream HTTP '+str(status)) from None
+            status=exc.code;exc.close();raise UpstreamRejected('upstream HTTP '+str(status)) from None
         except (OSError,ValueError,UnicodeError,RecursionError):raise TransportError('upstream request failed') from None
+        if len(raw)>262144:raise UpstreamRejected('upstream response too large')
+        try:
+            obj=json.loads(raw.decode('utf-8'),object_pairs_hook=unique,parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+        except (ValueError,UnicodeError,RecursionError):raise UpstreamRejected('invalid upstream response') from None
+        if not isinstance(obj,dict):raise UpstreamRejected('invalid upstream response')
+        return obj

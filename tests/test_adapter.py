@@ -1,5 +1,6 @@
 import unittest
 from pocket.hermes import HermesAdapter, UpstreamError
+from pocket.transport import UpstreamRejected
 
 class AdapterTests(unittest.TestCase):
     def setUp(self):
@@ -38,6 +39,13 @@ class AdapterTests(unittest.TestCase):
         self.adapter.transport=offline
         with self.assertRaises(OSError):self.adapter.check()
         self.assertTrue(self.adapter.ready)
+    def test_rejected_probe_clears_verdict(self):
+        self.ready()
+        def revoked(*args):raise UpstreamRejected('upstream HTTP 401')
+        self.adapter.transport=revoked
+        with self.assertRaises(UpstreamRejected):self.adapter.check()
+        self.assertFalse(self.adapter.ready)
+        with self.assertRaises(UpstreamError):self.adapter.create('hi','d:r')
     def test_probe_does_not_block_concurrent_calls(self):
         self.ready();seen=[]
         def transport(method,path,body,headers):
