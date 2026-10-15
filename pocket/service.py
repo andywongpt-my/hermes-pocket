@@ -31,6 +31,13 @@ class Service:
             self.backend.stop(task['run_id'])
             # A stop request is not proof that work stopped.
             return self.refresh(device,rid)
+    def abandon(self,device,rid):
+        """Explicitly close an unresolvable task. Never stops or resubmits upstream work."""
+        with self.lock:
+            try:task=self.refresh(device,rid)
+            except Exception:task=self.store.get(device,rid)
+            if task['state']!='unknown':raise InvalidTransition('only unknown tasks can be abandoned')
+            return self.store.transition(device,rid,'failed')
 
 class FakeHermes:
     """Deterministic test backend. Does not invoke a model or execute tools."""

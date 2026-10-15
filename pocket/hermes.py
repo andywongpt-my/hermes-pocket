@@ -6,11 +6,12 @@ class UpstreamError(RuntimeError):pass
 class HermesAdapter:
     def __init__(self,transport):self.transport=transport;self.ready=False
     def check(self):
-        self.ready=False
+        # An unreachable probe proves nothing about capabilities, so it keeps the
+        # last verdict; clearing it first would fail concurrent submissions.
         data=self.transport('GET','/v1/capabilities',None,{})
         features=data.get('features',{}) if isinstance(data,dict) else {}
         if not isinstance(features,dict) or not all(features.get(k) is True for k in ('run_submission','run_status','run_stop')):
-            raise UpstreamError('required Hermes capabilities unavailable')
+            self.ready=False;raise UpstreamError('required Hermes capabilities unavailable')
         self.ready=True;return features
     def _call(self,method,path,body=None,headers=None):
         if not self.ready:raise UpstreamError('Hermes capabilities not verified')

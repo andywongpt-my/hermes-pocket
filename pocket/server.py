@@ -130,6 +130,9 @@ def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,de
                     if len(parts)==3 and parts[2]=='stop' and self.command=='POST':
                         if raw!=b'{}':raise ProtocolError('stop requires empty object')
                         return self.respond(200,selected.stop(device,rid))
+                    if len(parts)==3 and parts[2]=='abandon' and self.command=='POST':
+                        if raw!=b'{}':raise ProtocolError('abandon requires empty object')
+                        return self.respond(200,selected.abandon(device,rid))
                 return self.respond(404,{'error':'not found'})
             except (ProtocolError,ValueError) as exc:
                 code=409 if isinstance(exc,(Conflict,InvalidTransition)) else 400

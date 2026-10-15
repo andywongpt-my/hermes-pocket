@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from pocket.store import Store, Conflict
+from pocket.store import Store, Conflict, InvalidTransition
 from pocket.service import Service, FakeHermes
 from pocket.chat import ChatService
 
@@ -28,6 +28,21 @@ class ChatTests(unittest.TestCase):
     def test_busy_chat_rejected(self):
         self.send()
         with self.assertRaises(Conflict):self.send('two')
+    def test_abandon_unblocks_chat_without_resubmitting(self):
+        def fail(*args,**kwargs):raise ConnectionError('offline')
+        create=self.backend.create;self.backend.create=fail
+        task=self.send();self.backend.create=create
+        self.assertEqual(self.chat.service.abandon('device',task['request_id'])['state'],'failed')
+        self.send('two','next')
+        self.assertEqual((self.backend.submissions,self.backend.histories[-1]),(1,[]))
+    def test_abandon_rejects_tracked_task(self):
+        task=self.send()
+        with self.assertRaises(InvalidTransition):self.chat.service.abandon('device',task['request_id'])
+    def test_transcript_survives_upstream_failure(self):
+        self.send()
+        def offline(rid):raise ConnectionError('offline')
+        self.backend.read=offline
+        self.assertEqual([r['state'] for r in self.chat.transcript('device','chat')],['queued_upstream'])
     def test_other_chat_and_device_separate(self):
         self.send();self.send(chat='other');self.send(device='other')
         self.assertEqual(self.backend.histories,[[],[],[]])

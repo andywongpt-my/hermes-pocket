@@ -10,6 +10,9 @@ Authenticated local HTTP endpoints:
 - `GET /tasks/{request_id}`: refresh snapshot from the fake backend
 - `GET /tasks/{request_id}/events?after=0`: up to 100 journal events after cursor
 - `POST /tasks/{request_id}/stop`: body `{}`; request stop and re-read actual state
+- `POST /tasks/{request_id}/abandon`: body `{}`; explicitly close a task whose state
+  is still `unknown` after a refresh, recording it as `failed`. It neither stops nor
+  resubmits upstream work, which may still have run. Other states return 409.
 - `GET /usage`: three unavailable provider entries with null values
 
 Request IDs and authenticated device IDs are 1–64 ASCII letters/digits/underscore/hyphen.
@@ -65,7 +68,7 @@ POST /targets/{target}/chats/{chat_id}/messages accepts the same versioned
 request_id/text body as tasks. GET on that path returns the latest 100 turns.
 Task IDs in returned turns are explicitly mapped from chat IDs and client request
 IDs. One turn may be active per chat; an ambiguous/unfinished turn blocks new
-ones until reconciled. Completed history (at most 20 prior turns and 16 KiB)
+ones until it resolves or the device explicitly abandons its task ID. Completed history (at most 20 prior turns and 16 KiB)
 is supplied to Hermes using conversation_history. Earlier turns remain in the
 journal but fall outside the bounded prompt window. Failed turns are not included
 as successful dialogue. Separate target databases isolate histories.

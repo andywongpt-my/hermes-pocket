@@ -43,7 +43,7 @@ python3 -m pocket.simulator
 python3 -m pocket.server --demo --two-targets
 ```
 
-96 offline unittest checks passed for the current source, including a full-size
+102 offline unittest checks passed for the current source, including a full-size
 4096-byte PCM frame through actual local HTTP routes and synthesized playback.
 These checks use fake speech/models and do not spend provider allowance.
 
