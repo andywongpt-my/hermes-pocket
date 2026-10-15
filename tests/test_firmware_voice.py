@@ -114,7 +114,7 @@ static void *allocations[16];
 static size_t allocation_sizes[16];
 static bool allocation_audio[16];
 static char status_log[128];
-static char capture_log[256],request_log[256];
+static char capture_log[256],request_log[256],upload_log[1024];
 static char endpoint[193];
 /* Virtual 16kHz codec/RTOS producer while the real network worker is blocked.
    Delays are injected at HTTP's external boundary, independent of radio flags. */
@@ -133,7 +133,13 @@ static void *test_malloc(size_t size) {
 static void test_free(void *p) { if(!p)return;for(unsigned i=0;i<16;i++)if(allocations[i]==p){bool cancel_after=mode==17 && allocation_sizes[i]==CAPTURE_BODY_BYTES && !queue_live && !state.recording;if(allocation_audio[i])audio_bytes-=allocation_sizes[i];allocations[i]=NULL;free(p);if(cancel_after){assert(!audio_bytes);pocket_voice_cancel();}return;}abort(); }
 static unsigned live_allocations(void) { unsigned n=0;for(unsigned i=0;i<16;i++)if(allocations[i])n++;return n; }
 time_t test_time(time_t *out) { if(out)*out=1735689600;return 1735689600; }
-void test_log(const char *tag,const char *fmt,...) { char *out=NULL;size_t cap=0;if(!strcmp(tag,"pocket_status")){out=status_log;cap=sizeof(status_log);}if(!strcmp(tag,"pocket_capture")){out=capture_log;cap=sizeof(capture_log);}if(!strcmp(tag,"pocket_voice_request")){out=request_log;cap=sizeof(request_log);}if(!out)return;va_list args;va_start(args,fmt);vsnprintf(out,cap,fmt,args);va_end(args); }
+static unsigned upload_logs,upload_logs_during_capture;
+static bool inject_slow_upload_log;
+static void produce_until(int64_t until);
+void test_log(const char *tag,const char *fmt,...) {
+ if(mode==30 && !strcmp(tag,"pocket_voice_request"))elapsed_ms+=13;
+ if(mode==29 && !strcmp(tag,"pocket_upload"))elapsed_ms+=23;
+ if(!strcmp(tag,"pocket_upload")){upload_logs++;if(state.recording){upload_logs_during_capture++;if(inject_slow_upload_log)produce_until(elapsed_ms+300);}} char *out=NULL;size_t cap=0;if(!strcmp(tag,"pocket_status")){out=status_log;cap=sizeof(status_log);}if(!strcmp(tag,"pocket_capture")){out=capture_log;cap=sizeof(capture_log);}if(!strcmp(tag,"pocket_voice_request")){out=request_log;cap=sizeof(request_log);}if(!strcmp(tag,"pocket_upload")){out=upload_log;cap=sizeof(upload_log);}if(!out)return;va_list args;va_start(args,fmt);vsnprintf(out,cap,fmt,args);va_end(args); }
 void esp_fill_random(void *p,size_t size) { memset(p,0,size); }
 int64_t esp_timer_get_time(void) { return elapsed_ms*1000; }
 size_t heap_caps_get_free_size(unsigned caps) { (void)caps;return 32000; }
@@ -191,7 +197,7 @@ int mbedtls_base64_decode(unsigned char *out,size_t cap,size_t *size,const unsig
 static cJSON root, available={"available",0,0,2}, voice, stt, failed={"failed",0,0,2};
 static cJSON submitted={"submitted",0,0,2}, completed={"completed",0,0,2}, ready={"ready",0,0,2};
 static cJSON task_id={"fixture-task",0,0,2}, text={"synthetic",0,0,2}, chunk_data={"synthetic-pcm",0,0,2}, chunks={NULL,1,1,3};
-cJSON *cJSON_Parse(const char *text) { (void)text;json_live++;return &root; }
+cJSON *cJSON_Parse(const char *text) { if(mode==29)elapsed_ms+=17;(void)text;json_live++;return &root; }
 void cJSON_Delete(cJSON *value) { if(value){assert(json_live>0);json_live--;} }
 static cJSON *fixture_item(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if((mode!=8 && mode<18) || mode>=26)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks")){chunks.valueint=mode==19 || mode==21?2:1;chunks.valuedouble=chunks.valueint;return &chunks;}if(!strcmp(key,"data"))return &chunk_data;return NULL; }
 cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value,const char *key) {
@@ -203,6 +209,7 @@ int cJSON_IsTrue(const cJSON *value) { return value && value->type==1; }
 int cJSON_IsBool(const cJSON *value) { return value && (value->type==0 || value->type==1); }
 int cJSON_IsNumber(const cJSON *value) { return value && value->type==3; }
 esp_err_t pocket_http_json(const char *origin,const char *path,const char *token,const char *ca,const char *body,char *out,size_t cap,pocket_http_result *result) {
+ if(mode==29 || mode==30){(void)origin;(void)path;(void)token;(void)ca;(void)body;assert(cap>=3);memcpy(out,"{}",3);result->status=mode==30?403:200;result->length=2;result->total_us=123000;result->perform_us=121000;result->pre_heap_us=result->post_heap_us=1000;result->connected=true;result->connect_ms=9;result->heap_measured=true;result->heap_before_measured=false;result->performed=true;result->free_heap=30000;result->largest_block=24000;elapsed_ms+=123;return ESP_OK;}
  (void)origin;(void)token;(void)ca;assert(cap>=3);snprintf(endpoint,sizeof(endpoint),"%s",path);if(strstr(path,"/status"))status_calls++;if(body)posts++;
  if(strstr(path,"/finish")){radio_restored_before_finish=wifi_ps==WIFI_PS_MIN_MODEM;finish_calls++;if(mode==18)pocket_voice_cancel();if(mode==20 || mode==21){unsigned before=volume_calls;pocket_voice_set_volume(89);assert(volume_calls==before);}}
  if(strstr(path,"/abort"))abort_calls++;
@@ -238,6 +245,7 @@ void pocket_actions_idle(unsigned target,const pocket_link_config *link,char *re
 void pocket_actions_disconnected(unsigned target){assert(target<2);readonly_disconnects++;}
 static void reset(int value) {
  for(unsigned i=0;i<16;i++)if(allocations[i]){free(allocations[i]);allocations[i]=NULL;}
+ upload_logs=upload_logs_during_capture=0;inject_slow_upload_log=false;upload_diag=(upload_diagnostics){0};max_upload_ms=0;
  mode=value;status_shape=0;command_reads=audio_attempts=status_calls=posts=queue_live=recorder_tasks=record_active=packets=task_deletes=0;
  retained_capture=playback_calls=finish_calls=abort_calls=capture_reads=0;audio_bytes=peak_audio_bytes=queue_bytes=record_stack=uploaded_bytes=playback_bytes=0;queue_head=queue_tail=0;endpoint[0]=0;
  transport_failures=status_successes=http_closes=chunk_attempts=0;elapsed_ms=last_exchange_ms=0;transport_open=false;
@@ -245,11 +253,30 @@ static void reset(int value) {
  volume_calls=last_volume=capture_volume=playback_volume=volume_changes=0;
  wifi_ps=WIFI_PS_MIN_MODEM;radio_awake_calls=radio_restore_calls=0;capture_low_latency=radio_restored_before_finish=false;
  scheduled_frame=NULL;scheduled_recording=false;produced_frames=acknowledged_frames=0;next_frame_ms=record_started_ms=0;
- memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=capture_log[0]=request_log[0]=0;
+ memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=capture_log[0]=request_log[0]=upload_log[0]=0;
  pocket_voice_set_volume(60);pocket_voice_begin(1);
 }
 #define CHECK(c,m) do { if(!(c)){puts("FAIL: " m);return 1;} } while(0)
 int main(int argc,char **argv) {
+ if(argc>1 && !strcmp(argv[1],"metrics")){
+  pocket_link_config link={0};char response[8192];
+  reset(29);elapsed_ms=0;cJSON *ack=request(&link,"/targets/linux/audio/fixture/chunk","{}",response,sizeof(response),VOICE_CHUNK);
+  CHECK(ack && !upload_logs && upload_diag.count==1 && upload_diag.request_us==123000 && upload_diag.http.perform_us==121000,"successful chunk printed a hot-path diagnostic or lost transport timing");
+  CHECK(upload_diag.max_json_us==17000 && !upload_diag.max_log_us && upload_diag.max_post_us==17000,"JSON/post timing was not attributed separately");
+  cJSON_Delete(ack);upload_report(1);CHECK(upload_logs==1 && upload_diag.report_us==23000,"capture-end summary logging time lost");
+  CHECK(strstr(upload_log,"performed=1") && strstr(upload_log,"connected=1 connect_ms=9") && strstr(upload_log,"heap=1 heap_before=0 free=30000 largest=24000"),"deferred numeric summary lost reconnect timing, stage-presence or measured heap");
+  reset(30);elapsed_ms=0;ack=request(&link,"/targets/linux/audio/fixture/chunk","{}",response,sizeof(response),VOICE_CHUNK);
+  CHECK(!ack && upload_diag.request_us==123000 && upload_diag.max_log_us==13000 && !upload_diag.max_json_us && upload_diag.max_post_us==13000,"failure diagnostic overhead was hidden in transport or lost");
+  CHECK(strstr(state.message,"Pairing / login required"),"HTTP failure behavior changed");
+  reset(0);puts("PASS: transport, wrapper logging/JSON and deferred summary costs remain separate");return 0;
+ }
+ if(argc>1 && !strcmp(argv[1],"timing")){
+  reset(28);inject_slow_upload_log=true;int timing_exit=setjmp(stopped);if(!timing_exit)network(NULL);
+  CHECK(!capture_diag.reason && produced_frames==32 && acknowledged_frames==32 && finish_calls==1 && !abort_calls,"diagnostic logging broke otherwise sustainable capture cadence");
+  CHECK(upload_logs==1 && !upload_logs_during_capture,"upload diagnostics were not bounded to one capture-end summary");
+  CHECK(!queue_live && !state.busy && peak_audio_bytes<=22000,"bounded diagnostics changed memory or cleanup");
+  reset(0);puts("PASS: slow diagnostics run once after continuous PCM capture, without queue growth");return 0;
+ }
  if(argc>1 && !strcmp(argv[1],"cadence")){
   for(int value=26;value<=28;value++){
    reset(value);int cadence_exit=setjmp(stopped);if(!cadence_exit)network(NULL);
@@ -424,3 +451,9 @@ class FirmwareVoiceTests(unittest.TestCase):
 
     def test_pcm_cadence_jitter_and_measured_upload_stall(self):
         self._exercise(['cadence'])
+
+    def test_upload_diagnostics_do_not_block_pcm_cadence(self):
+        self._exercise(['timing'])
+
+    def test_upload_timing_attributes_postprocessing(self):
+        self._exercise(['metrics'])

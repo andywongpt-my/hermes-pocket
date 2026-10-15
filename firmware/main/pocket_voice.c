@@ -33,6 +33,22 @@ enum { VOICE_STATUS=1, VOICE_BEGIN=2, VOICE_CHUNK=3, VOICE_FINISH=4, VOICE_STT=5
 typedef struct { unsigned reason,bytes,queue_peak,capture_ms,max_read_ms;int error; } capture_diagnostics;
 static capture_diagnostics capture_diag;
 static unsigned max_upload_ms;
+typedef struct {
+ unsigned count,request_us,max_log_us,max_json_us,max_post_us,report_us;
+ esp_err_t error;pocket_http_result http;
+} upload_diagnostics;
+static upload_diagnostics upload_diag;
+/* Emit once after capture/provider handling, never on the PCM upload path.
+   Phase offsets describe the slowest request; max_post/log/json span all chunks. */
+static void upload_report(unsigned target){
+ if(!upload_diag.count)return;
+ int64_t began=esp_timer_get_time();const pocket_http_result *r=&upload_diag.http;
+ ESP_LOGI("pocket_upload","target=%u count=%u error=%d http=%d request_us=%u http_us=%u pre_heap_us=%u perform_us=%u performed=%u post_heap_us=%u diag_us=%u event_us=%u connected=%u connect_ms=%u headers=%u headers_ms=%u response=%u response_ms=%u body=%u body_ms=%u finish=%u finish_ms=%u perform_end_ms=%u nodelay=%u heap=%u heap_before=%u free=%u largest=%u max_log_us=%u max_json_us=%u max_post_us=%u",
+  target,upload_diag.count,upload_diag.error,r->status,upload_diag.request_us,r->total_us,r->pre_heap_us,r->perform_us,(unsigned)r->performed,r->post_heap_us,r->diagnostic_us,r->event_us,
+  (unsigned)r->connected,r->connect_ms,(unsigned)r->headers_sent,r->headers_ms,(unsigned)r->response_started,r->response_ms,(unsigned)r->body_started,r->body_ms,
+  (unsigned)r->finished,r->finish_ms,r->perform_end_ms,(unsigned)r->nodelay,(unsigned)r->heap_measured,(unsigned)r->heap_before_measured,r->free_heap,r->largest_block,upload_diag.max_log_us,upload_diag.max_json_us,upload_diag.max_post_us);
+ upload_diag.report_us=(unsigned)(esp_timer_get_time()-began);
+}
 static QueueHandle_t audio_queue,commands;
 static atomic_bool audio_unavailable;
 /* Worker-owned recovery: a failed restore must not redefine the idle mode. */
@@ -130,28 +146,33 @@ static bool release_capture(capture_frame **frame,char **body){
 static cJSON *request(pocket_link_config *link,const char *path,const char *body,char *response,size_t size,unsigned stage){
  pocket_http_result result={0};int64_t began=esp_timer_get_time();
  esp_err_t error=pocket_http_json(link->origin,path,link->token,link->ca,body,response,size,&result);
- unsigned duration_ms=(unsigned)((esp_timer_get_time()-began)/1000);
- if(stage==VOICE_CHUNK && duration_ms>=100){
-  portENTER_CRITICAL(&mux);unsigned target=state.target;portEXIT_CRITICAL(&mux);
-  ESP_LOGI("pocket_upload","target=%u error=%d http=%d total_ms=%u connected=%u connect_ms=%u headers=%u headers_ms=%u response=%u response_ms=%u nodelay=%u free=%u largest=%u",
-   target,error,result.status,duration_ms,(unsigned)result.connected,result.connect_ms,(unsigned)result.headers_sent,result.headers_ms,
-   (unsigned)result.response_started,result.response_ms,(unsigned)result.nodelay,
-   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
- }
+ int64_t after_http=esp_timer_get_time();unsigned duration_us=(unsigned)(after_http-began),duration_ms=duration_us/1000;
  if(stage==VOICE_CHUNK && duration_ms>max_upload_ms)max_upload_ms=duration_ms;
+ int64_t log_began=esp_timer_get_time();
  if(error!=ESP_OK || result.status<200 || result.status>=300 || stage==VOICE_BEGIN || stage==VOICE_FINISH){
   portENTER_CRITICAL(&mux);unsigned target=state.target;portEXIT_CRITICAL(&mux);
-  ESP_LOGI("pocket_voice_request","target=%u stage=%u error=%d http=%d duration_ms=%u free=%u largest=%u",
-   target,stage,error,result.status,duration_ms,(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+  ESP_LOGI("pocket_voice_request","target=%u stage=%u error=%d http=%d duration_ms=%u heap=%u free=%u largest=%u",
+   target,stage,error,result.status,duration_ms,(unsigned)result.heap_measured,result.free_heap,result.largest_block);
  }
- if(error!=ESP_OK){message("Connection lost; not resent");return NULL;}
- if(result.status<200 || result.status>=300){
+ unsigned log_us=(unsigned)(esp_timer_get_time()-log_began),json_us=0;cJSON *json=NULL;
+ if(error!=ESP_OK)message("Connection lost; not resent");
+ else if(result.status<200 || result.status>=300){
   if(result.status==401 || result.status==403)message("Pairing / login required");
   else if(result.status==409)message("Previous task needs attention");
   else message("Bridge could not accept request");
-  return NULL;
+ }else {
+  int64_t json_began=esp_timer_get_time();json=cJSON_Parse(response);json_us=(unsigned)(esp_timer_get_time()-json_began);
+  if(!json)message("Invalid bridge response");
  }
- cJSON *json=cJSON_Parse(response);if(!json)message("Invalid bridge response");return json;
+ if(stage==VOICE_CHUNK){
+  unsigned post_us=(unsigned)(esp_timer_get_time()-after_http);
+  if(!upload_diag.count || duration_us>upload_diag.request_us){upload_diag.request_us=duration_us;upload_diag.http=result;upload_diag.error=error;}
+  upload_diag.count++;
+  if(log_us>upload_diag.max_log_us)upload_diag.max_log_us=log_us;
+  if(json_us>upload_diag.max_json_us)upload_diag.max_json_us=json_us;
+  if(post_us>upload_diag.max_post_us)upload_diag.max_post_us=post_us;
+ }
+ return json;
 }
 static const char *string(cJSON *json,const char *key){cJSON *value=cJSON_GetObjectItemCaseSensitive(json,key);return cJSON_IsString(value)?value->valuestring:"";}
 static bool post_empty(pocket_link_config *link,const char *path,char *response,unsigned stage){cJSON *j=request(link,path,"{}",response,8192,stage);bool ok=j!=NULL;cJSON_Delete(j);return ok;}
@@ -265,7 +286,7 @@ static void network(void *unused){
    pocket_http_close();
    memset(link,0,sizeof(*link));poll_target=1-poll_target;continue;
   }bool started=false,pressed=false,restore_radio=false;wifi_ps_type_t saved_ps=WIFI_PS_NONE;unsigned sequence=0;char id[33],path[193],task[65]={0};
-  portENTER_CRITICAL(&mux);capture_diag=(capture_diagnostics){0};capture_failed=false;capture_done=false;portEXIT_CRITICAL(&mux);max_upload_ms=0;
+  portENTER_CRITICAL(&mux);capture_diag=(capture_diagnostics){0};capture_failed=false;capture_done=false;portEXIT_CRITICAL(&mux);max_upload_ms=0;upload_diag=(upload_diagnostics){0};
   const char *name=target?"linux":"windows";uint32_t random[4];esp_fill_random(random,sizeof(random));
   snprintf(id,sizeof(id),"%08lx%08lx%08lx%08lx",(unsigned long)random[0],(unsigned long)random[1],(unsigned long)random[2],(unsigned long)random[3]);
   message("Connecting...");
@@ -338,11 +359,12 @@ static void network(void *unused){
   /* Let the bounded codec read finish before any subsequent capture/playback. */
   for(int i=0;i<20;i++){portENTER_CRITICAL(&mux);bool recording=state.recording;portEXIT_CRITICAL(&mux);if(!recording)break;vTaskDelay(pdMS_TO_TICKS(100));}
   if(started){
+   upload_report(target);
    portENTER_CRITICAL(&mux);capture_diagnostics diag=capture_diag;portEXIT_CRITICAL(&mux);
    /* Aggregate numeric metadata only. No PCM, endpoints, task IDs or text. */
-   ESP_LOGI("pocket_capture","target=%u reason=%u error=%d bytes=%u capture_ms=%u max_read_ms=%u queue_peak=%u chunks=%u max_upload_ms=%u free=%u largest=%u",
+   ESP_LOGI("pocket_capture","target=%u reason=%u error=%d bytes=%u capture_ms=%u max_read_ms=%u queue_peak=%u chunks=%u max_upload_ms=%u free=%u largest=%u upload_log_us=%u",
     target,diag.reason,diag.error,diag.bytes,diag.capture_ms,diag.max_read_ms,diag.queue_peak,sequence,max_upload_ms,
-    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),upload_diag.report_us);
   }
   bool fault=!release_capture(&frame,&body);
   portENTER_CRITICAL(&mux);state.busy=fault;state.playing=false;portEXIT_CRITICAL(&mux);
