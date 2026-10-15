@@ -2,7 +2,9 @@
 
 Run `python -m pocket.run_bridge --config owner-config.json` on the host after
 installing requirements. Startup checks liveness/capabilities without a model call.
-This entry point has not yet been deployed to the owner's machines.
+Live configuration is owner-managed. The checked Linux installation is deployed;
+see [current verification](VERIFICATION.md) for the exact physical evidence and
+the separate service-version gate for the newest task-preview response fix.
 
 Windows Desktop needs `websockets==16.0`. Speech decoding needs FFmpeg on PATH,
 installed separately from a trusted vendor/package source. No binary is downloaded

@@ -11,11 +11,16 @@ connection diagnostics, saved target selection, bounded Pocket task browsing,
 read-only shortcuts, Usage reminders and local audio controls to the animated
 cat, battery gauge, phone setup and voice client.
 
-The diagnostics and target-preference build passed app-only flash/readback and a
-bounded physical boot check: Linux status returned authenticated HTTP 200 with
-the backend available, without observed TLS failures, fatal errors or Wi-Fi drops.
-NVS pairing, the bootloader and partition table were preserved. Full controls
-hardware validation is recorded in [verification](docs/VERIFICATION.md).
+The combined controls and debug build passed app-only flash/readback and a
+bounded physical boot check: Linux status returned authenticated HTTP 200 and
+Usage decoded successfully, with all account feeds honestly unconfigured.
+No Linux failures, fatal errors or Wi-Fi drops were observed in that window.
+NVS pairing, the bootloader and partition table were preserved. Exact source,
+hashes and acceptance limits are recorded in [verification](docs/VERIFICATION.md).
+
+The same application retains numeric connection/TLS/heap, voice capture reason,
+request stage/timing/queue and Usage decode diagnostics. These messages do not
+include credentials, recorded audio, transcription/reply bodies or real quotas.
 
 The checked Linux bridge advertises configured STT and TTS. That capability
 report does not establish successful microphone capture or a complete voice
@@ -48,7 +53,7 @@ Alerts and Screen. A wake gesture is consumed completely before controls resume.
 | Diagnostics | Show the selected target's last observed prerequisites, HTTP/transport/TLS codes, capabilities, heap and age. Old or paused observations are labeled. |
 | Tasks: short/hold OK | Select the next Pocket task / refresh its list. Show real phases and a bounded result preview, including approval, uncertain and truncated states. |
 | Tools: short/hold OK | Choose / request Status, Usage or Pocket Tasks through existing GET routes. Todo stays unavailable because no supported read-only source is configured. |
-| Audio: OK, then UP/DOWN | Enter volume editing and adjust 0–100; OK exits editing. Only the worker touches the codec. |
+| Audio: OK, then UP/DOWN | Enter volume editing and adjust 0â€“100; OK exits editing. Only the worker touches the codec. |
 | Alerts: short/hold OK | Select 80%, 90% or off for percentages / toggle the independent $1 low-credit threshold. |
 | Screen: short OK | Turn off the display while keeping Wi-Fi and existing work alive. Any fresh press wakes it. |
 

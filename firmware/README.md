@@ -39,10 +39,11 @@ entire wake hold/release and delayed click are ignored, so waking cannot select
 an agent, enter setup, record audio, change page or immediately turn off again.
 Release the wake button, then use a fresh press to interact normally.
 
-The diagnostics/target-preference firmware passed ESP-IDF compilation, app-only flashing
-at 0x10000 and independent flash verification. Boot reached app_main, detected
-CW2017 and showed no observed panic or driver errors. Settings partitions were
-not written. This does not establish visual, battery-accuracy, button or voice
+The combined controls/debug firmware passed ESP-IDF compilation, app-only flashing
+at 0x10000 and independent flash verification. Boot reached app_main, reported
+Linux status HTTP 200 and successfully decoded unconfigured Usage providers.
+No fatal errors or Wi-Fi drops were observed in the bounded check. Settings
+partitions were not written. This does not establish visual, battery-accuracy, button or voice
 acceptance. See `../docs/DEVICE-UI-ACCEPTANCE.md` for that checklist.
 
 First boot without saved Wi-Fi starts phone setup. Join the displayed temporary
@@ -70,7 +71,7 @@ states include approval and unknown outcomes; there is no invented progress
 percentage. Tools queues only existing read-only Status, Usage and Task GETs.
 Todo remains unavailable without a supported source.
 
-On Audio, OK enters/exits volume editing; UP/DOWN changes 0–100 while editing.
+On Audio, OK enters/exits volume editing; UP/DOWN changes 0â€“100 while editing.
 On Alerts, OK cycles 80%, 90% and off for percentages; hold OK toggles the
 independent, labeled $1 low-credit threshold. Alerts require fresh available Usage samples and never invent account
 data. Reset notices require a fresh next-period sample. Target selection survives
@@ -102,3 +103,7 @@ Use candidate split images only; do not erase flash or write across the NVS gap.
 BSP: FoloToy/ai-passport commit a9320ab6eaa21b90759a4a22d1039092385f24dd,
 MIT notice retained. Dependencies and font notices are in ../docs/licenses and
 ../docs/THIRD-PARTY-NOTICES.md.
+
+The combined app retains target-scoped TLS/verify/heap, voice capture reason,
+request stage/timing/queue and numeric Usage parsing diagnostics. Logs omit
+credentials, audio, transcription/reply bodies and real account values.

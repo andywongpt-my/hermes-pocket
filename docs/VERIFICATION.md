@@ -1,17 +1,67 @@
 # Current publication verification: 2026-10-15
 
-- Local offline run: 107 unittest checks, zero failures/errors, with two existing host-compiler/LVGL skips. The new native HTTP/voice C regressions passed with a cached compiler.
-- Strict C11 setup-interface address regression test passed.
-- Node setup-page validation/initialization checks passed.
-- Synthetic bridge simulator completed, with zero duplicate dispatches and three replayed events.
-- No real speech/model calls or provider account usage reads were performed by these host checks.
-- Current animated firmware and idle-audio memory fix passed ESP-IDF compilation, app-only flash at 0x10000 and independent app/bootloader verification. The partition table was unchanged. Boot reached app_main, CW2017 was detected, and no panic or driver errors were observed. Settings partitions were untouched.
-- The physical device reported authenticated Linux status HTTP 200 with the backend available over certificate- and hostname-validated HTTPS. Internal free heap before TLS was 90,584 bytes, with an 81,920-byte largest block; after TLS, 58,112 bytes and a 47,104-byte largest block remained. No TLS error was observed in this bounded boot check. No TLS/cipher/trust/auth configuration was changed.
-- Idle audio allocation had caused TLS big-number allocation failure. Audio queues, buffers and the recorder task now wait until a held talk request passes STT checks; regressions cover allocation/task failure and cleanup, including retaining a queue still used by a stalled recorder.
-- Verified application source: `77fbcc7cf436e1c609e73a5b96951b7b2eeea7a8`; application binary SHA256: `de491dcf2f24e95c5642f9d4a6a81d9b5c253fc5b5dc65b6d98a5eb7a670e35d`.
-- Voice remains off/unverified: the checked bridge reports STT unavailable. Live text-task execution and the router Tailscale setup remain unfinished.
-- This source package contains no firmware binaries. Host checks are not proof of the physical UI, battery accuracy, successful provisioning or end-to-end Hermes voice operation. Those acceptance checks remain pending.
-- Reviewed Linux voice transport: `pocket/linux_voice.py`, SHA256 `833f733fd732820fdd7d0ddcf19b83586628e1951338d072a080e9e73de31202`.
+The combined everyday-controls and debug firmware was built from source
+`fb12abd0f46e26b6b3cee9983491c9e5e2c42457` and app-only flashed at `0x10000`.
+Application size: 1,811,248 bytes. Application SHA256:
+`c4bbb374d23cdfd904bce7c5ed667118e46c91c396fe8008406f3593baf163bf`. Independent application and retained bootloader
+verification passed; the retained partition table was unchanged. NVS, pairing,
+other partitions and security settings were not written.
+
+- The final offline suite ran 168 unittest checks with zero failures/errors and
+  five Windows/environment skips. The simulator passed; the guarded runner
+  recorded zero external-network attempts. Skips were the separate LVGL suite
+  and four Linux-only process-tree/symlink checks. GitHub's Linux jobs cover the
+  latter and render the UI using the pinned LVGL version.
+- A separate cached LVGL 9.5 build rendered all 42 firmware UI states at 240x320,
+  with the device's 24 KiB LVGL pool and assertions enabled. Representative
+  task/UTF-8/truncation, diagnostic, alert and audio controls were visually checked.
+  This is host rendering, not physical display/button acceptance.
+- ESP-IDF 5.5.3 compilation and linking passed. The exact source manifest,
+  normalized tested source and compiled control/debug symbols were checked.
+  SDK configuration and certificate/hostname/auth behavior were unchanged.
+- The physical boot window was 08:00:01-08:01:31 UTC on 2026-10-15.
+  The expected ELF identity reached `app_main`; 6 Linux HTTPS status
+  cycles passed across 58.6 seconds. Backend availability and STT
+  readiness were observed. There were zero observed Linux failure events,
+  unexpected resets, fatal errors or Wi-Fi drops during this bounded window.
+  Minimum observed post-request internal free heap was 45,268 bytes;
+  the minimum largest block was 32,768 bytes.
+  The selected Home target remained Windows, which was offline; Linux readiness
+  was measured independently. Home short OK selects Linux when that is intended.
+- The actual device received Linux Usage HTTP 200 and decoded it successfully.
+  All three provider states were `not_configured` with zero metrics. This proves
+  transport/parser integration; real quotas, resets and quota alerts remain
+  unavailable until supported feeds are configured.
+- Debug diagnostics remain in the combined application: target-scoped connection,
+  transport/TLS/verify codes and heap observations; voice capture reason/error,
+  duration/read/upload timing and queue peak; request stage/error/HTTP/duration;
+  and numeric Usage HTTP/decode/availability/metric counts. These diagnostic
+  messages contain no credentials, audio, transcription/reply bodies or real
+  allowance values. No recording or paid/model canary was triggered for validation.
+- Native tests cover actual main input handlers, wake/setup/long-release gesture
+  isolation, volume and cancellation handoff, task target/generation/sequence and
+  refresh races, fresh typed reminder metrics and reset transitions, idle HTTP
+  connection release, and active capture memory/cleanup. Task previews keep a
+  768-byte UTF-8 device bound and an 8000-byte serialized host response bound;
+  oversized metadata is rejected without changing identifiers or stored results.
+- The host source includes bounded Hermes speech-command workers and their
+  synthetic regression tests. The inspected Linux service advertises STT/TTS;
+  no successful owner-recorded end-to-end microphone/Hermes/playback round trip
+  has been established. The earlier capture failure's specific cause is still
+  unconfirmed; the numeric debug paths are available for the next owner recording.
+- Task browsing is limited to the latest twelve device-scoped Pocket tasks.
+  Live task execution, physical button/volume/battery/display acceptance and
+  target recovery across a physical selection/reboot remain unverified.
+  Todo has no supported read-only source. Volume/alerts/deduplication are
+  session-local; the selected target uses a separate validated NVS preference.
+- The narrow serialized task-preview/null-result host fix is source-tested here;
+  this firmware flash does not deploy or restart the separate host bridge.
+  Host deployment is a separate service-version gate. No account feed,
+  credential, provider permission, router/Tailscale or TLS policy was changed.
+
+This source package contains no firmware binaries, deployment receipts, raw logs,
+runtime configurations or provider credentials. Repository Actions records are
+the evidence for each published commit's Linux/offline and firmware CI checks.
 
 ## Historical records
 
@@ -63,7 +113,7 @@ The default fake server loses its upstream run map on process restart. Persisten
 SQLite history survives, but unfinished fake runs cannot then be fetched; this is
 reported as unavailable, not success. Production backend recovery is later work.
 
-No claim is made that all implementation-plan steps 1–4 are finished: the durable
+No claim is made that all implementation-plan steps 1â€“4 are finished: the durable
 core, mock transport and simulator are delivered; production transport and real event
 consumption still need work. Full plan/design documents describe the larger target.
 
@@ -71,7 +121,7 @@ Subsequent transport checks cover HTTPS-only origins, operation/header allowlist
 response-size and JSON validation, redacted errors and non-secret representations.
 These use injected synthetic responses, not a real TLS server or account.
 
-## Two-target routing increment — 2026-10-14
+## Two-target routing increment â€” 2026-10-14
 
 48 unittest methods passed, including 8 new loopback-only routing tests: target
 listing, mandatory explicit selection, independent same-ID submissions/results,
@@ -80,7 +130,7 @@ on backend error, and rejection of shared databases. Earlier 40 tests still pass
 No real server, account, speech service or hardware was contacted.
 
 
-## Chat/audio/device-model increment — 2026-10-14
+## Chat/audio/device-model increment â€” 2026-10-14
 
 77 host test methods pass. The suite includes the previous bridge tests plus chat
 continuity/restart/isolation/ambiguous admission, actual HTTP chat routing, bounded
@@ -108,7 +158,7 @@ The firmware UI is an offline implementation, not an operational voice assistant
 Audio and usage modules are tested libraries, not deployed account integrations.
 
 
-## Firmware setup preview build recovery — 2026-10-14 08:55 UTC
+## Firmware setup preview build recovery â€” 2026-10-14 08:55 UTC
 
 The earlier build blocker is resolved. The cloud cache was placed in the writable
 workspace and required Python dependencies installed without the optional pip
