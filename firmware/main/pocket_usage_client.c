@@ -114,7 +114,8 @@ static void mark(unsigned target,pocket_usage_availability state){
  portEXIT_CRITICAL(&usage_lock);
 }
 void pocket_usage_read(unsigned target,pocket_usage_snapshot *out){
- if(!out)return;memset(out,0,sizeof(*out));if(target>1)return;
+ if(!out)return;
+ memset(out,0,sizeof(*out));if(target>1)return;
  portENTER_CRITICAL(&usage_lock);*out=snapshots[target];portEXIT_CRITICAL(&usage_lock);
  int64_t now=(int64_t)time(NULL);
  for(unsigned p=0;p<3;p++){
@@ -132,7 +133,8 @@ void pocket_usage_read(unsigned target,pocket_usage_snapshot *out){
  }
 }
 void pocket_usage_disconnected(unsigned target){
- if(target>1)return;next_poll[target]=0;mark(target,POCKET_USAGE_UNAVAILABLE);
+ if(target>1)return;
+ next_poll[target]=0;mark(target,POCKET_USAGE_UNAVAILABLE);
 }
 void pocket_usage_poll(unsigned target,const pocket_link_config *link,char *response,size_t capacity){
  if(target>1 || !link || !response || capacity<2 || capacity>8192)return;
@@ -141,7 +143,8 @@ void pocket_usage_poll(unsigned target,const pocket_link_config *link,char *resp
   portENTER_CRITICAL(&usage_lock);memset(&snapshots[target],0,sizeof(snapshots[target]));portEXIT_CRITICAL(&usage_lock);
   memcpy(origins[target],link->origin,sizeof(origins[target]));origins[target][sizeof(origins[target])-1]=0;next_poll[target]=0;
  }
- if(now<next_poll[target] && now+30>=next_poll[target])return;next_poll[target]=now+30;
+ if(now<next_poll[target] && now+30>=next_poll[target])return;
+ next_poll[target]=now+30;
  pocket_http_result result;
  const char *route=target?"/targets/linux/usage":"/targets/windows/usage";
  if(pocket_http_json(link->origin,route,link->token,link->ca,NULL,response,capacity,&result)!=ESP_OK || result.status!=200){mark(target,POCKET_USAGE_FAILED);return;}
