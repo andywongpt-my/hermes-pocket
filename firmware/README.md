@@ -2,12 +2,13 @@
 
 Target: FoloToy AI Passport, ESP32-C3, 8 MB flash, no PSRAM.
 Toolchain: official ESP-IDF 5.5.3 with pinned managed components.
-The cat/battery/screen-standby increment has been built and app-only flashed.
+The animated cat/battery/screen-standby firmware has been built and app-only flashed.
 Validation status for this increment is listed below.
 
-The animated UI added in PR #2 is a later source update. Its CI build and host
-snapshots pass; it has not been flashed or physically accepted. The earlier
-flash/boot evidence below applies to the static-cat baseline.
+The current animated UI and memory fix passed flash/readback and boot checks.
+Authenticated Linux status returned HTTP 200 with the backend available over
+verified HTTPS. Physical display/button acceptance, live text tasks and end-to-end
+voice remain unverified; the checked bridge reports STT unavailable.
 
 UP/DOWN changes Home / Chat / Usage / Screen pages. On Home, click OK to select
 Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
@@ -37,7 +38,7 @@ entire wake hold/release and delayed click are ignored, so waking cannot select
 an agent, enter setup, record audio, change page or immediately turn off again.
 Release the wake button, then use a fresh press to interact normally.
 
-The cat/battery/standby firmware passed ESP-IDF compilation, app-only flashing
+The current firmware passed ESP-IDF compilation, app-only flashing
 at 0x10000 and independent flash verification. Boot reached app_main, detected
 CW2017 and showed no observed panic or driver errors. Settings partitions were
 not written. This does not establish visual, battery-accuracy, button or voice
@@ -56,6 +57,9 @@ pairing. Earlier Wi-Fi/address settings migrate without erasing NVS.
 The client verifies TLS certificates/hostnames and waits for network time. It does
 not retry uncertain audio submissions. PCM recording is bounded to 30 seconds;
 slow network capture fails visibly instead of silently discarding speech frames.
+Audio queues, buffers and the recorder task are allocated only after STT and
+held-button checks, then released after capture/use. Status polling keeps its
+connection/response buffers without reserving inactive audio memory needed by TLS.
 Transcription and reply synthesis happen through the configured host bridge.
 Both targets may use the Linux voice service, but chat/task state stays separate.
 

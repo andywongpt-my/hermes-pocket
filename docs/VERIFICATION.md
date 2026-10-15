@@ -1,12 +1,15 @@
 # Current publication verification: 2026-10-15
 
-- 96 Python unittest checks passed, zero failures/errors/skips, on the current source.
+- Local offline run: 107 unittest checks, zero failures/errors, with two existing host-compiler/LVGL skips. The new native HTTP/voice C regressions passed with a cached compiler.
 - Strict C11 setup-interface address regression test passed.
 - Node setup-page validation/initialization checks passed.
 - Synthetic bridge simulator completed, with zero duplicate dispatches and three replayed events.
 - No real speech/model calls or provider account usage reads were performed by these host checks.
-- Firmware ESP-IDF build, app-only flash at 0x10000 and independent device flash verification were reported successful by the device build/flash task. Boot reached app_main, CW2017 was detected, and no panic or driver errors were observed. Settings partitions were untouched.
-- Verified application binary SHA256: `592ab84294ba54972a62a23259a80f27e60dfa2586c1b30ddef654867caaadf8`.
+- Current animated firmware and idle-audio memory fix passed ESP-IDF compilation, app-only flash at 0x10000 and independent app/bootloader verification. The partition table was unchanged. Boot reached app_main, CW2017 was detected, and no panic or driver errors were observed. Settings partitions were untouched.
+- The physical device reported authenticated Linux status HTTP 200 with the backend available over certificate- and hostname-validated HTTPS. Internal free heap before TLS was 90,584 bytes, with an 81,920-byte largest block; after TLS, 58,112 bytes and a 47,104-byte largest block remained. No TLS error was observed in this bounded boot check. No TLS/cipher/trust/auth configuration was changed.
+- Idle audio allocation had caused TLS big-number allocation failure. Audio queues, buffers and the recorder task now wait until a held talk request passes STT checks; regressions cover allocation/task failure and cleanup, including retaining a queue still used by a stalled recorder.
+- Verified application source: `77fbcc7cf436e1c609e73a5b96951b7b2eeea7a8`; application binary SHA256: `de491dcf2f24e95c5642f9d4a6a81d9b5c253fc5b5dc65b6d98a5eb7a670e35d`.
+- Voice remains off/unverified: the checked bridge reports STT unavailable. Live text-task execution and the router Tailscale setup remain unfinished.
 - This source package contains no firmware binaries. Host checks are not proof of the physical UI, battery accuracy, successful provisioning or end-to-end Hermes voice operation. Those acceptance checks remain pending.
 - Reviewed Linux voice transport: `pocket/linux_voice.py`, SHA256 `833f733fd732820fdd7d0ddcf19b83586628e1951338d072a080e9e73de31202`.
 

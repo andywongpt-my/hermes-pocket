@@ -6,22 +6,24 @@ not an official FoloToy or NousResearch product.
 
 ## Current milestone: integrated firmware candidate
 
-Cloud-built for ESP32-C3, 8 MB flash, ESP-IDF 5.5.3. This candidate connects the
+Built for ESP32-C3, 8 MB flash, ESP-IDF 5.5.3. This candidate connects the
 phone setup, verified HTTPS client, push-to-talk microphone capture, durable
-bridge tasks, text replies and speaker playback. The cat/battery/screen-standby
+bridge tasks, text replies and speaker playback. The animated cat/battery/screen-standby
 firmware has been built, app-only flashed and independently verified on the device.
 Boot reached app_main and detected the CW2017 gauge, with no observed panic or
-driver errors. Physical UI acceptance and end-to-end bridge/voice validation remain
-pending. It is not the completed V1 release.
+driver errors. Physical UI acceptance, live text tasks and end-to-end voice validation
+remain pending. It is not the completed V1 release.
 
-The device verification above applies to the earlier static-cat baseline. The
-animated UI introduced in PR #2 is a source update with passing CI builds and
-host snapshots; it has not been flashed or physically accepted. This merge does
-not activate a bridge or change device settings.
+The physical device now reaches the Linux bridge over certificate- and
+hostname-validated HTTPS: authenticated status returned HTTP 200 with the backend
+available. Idle audio buffers and the recorder task are deferred until a held talk
+request passes the STT capability check, preserving heap for TLS verification.
+Settings, pairing and TLS configuration were preserved.
 
-The Hermes bridge remains inactive, with end-to-end chat and voice validation
-pending. Tailscale is not integrated into the Pocket firmware. A router gateway
-is planned; its model is unknown and router setup has not been completed.
+Linux text/task interfaces are implemented and tested offline; live text-task
+execution remains unverified. Voice is currently off and unverified: the checked
+bridge reports STT unavailable. Tailscale is not integrated into the Pocket
+firmware. A router gateway is planned, and router setup has not been completed.
 
 - Separate Windows/Linux target selection, chat history and device-scoped tasks
 - Phone setup through a temporary password-protected device Wi-Fi network
@@ -48,11 +50,12 @@ python3 -m pocket.simulator
 python3 -m pocket.server --demo --two-targets
 ```
 
-The combined suite contains 105 offline unittest checks, including a full-size
+The combined suite contains 107 offline unittest checks, including a full-size
 4096-byte PCM frame through actual local HTTP routes and synthesized playback.
-These checks use fake speech/models and do not spend provider allowance. Host C
-and UI snapshot cases require gcc and an LVGL checkout; CI runs those with the
-required tools.
+These checks use fake speech/models and do not spend provider allowance. Native C
+regressions cover numeric-only TLS diagnostics and idle/capture memory cleanup.
+Host C checks require a compiler; UI snapshots require gcc and an LVGL checkout.
+CI runs those with the required tools.
 
 The mock server binds loopback only. Its published fixture token is not a real
 credential and must never be exposed. Live Desktop transport additionally requires

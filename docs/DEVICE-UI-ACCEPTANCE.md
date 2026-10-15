@@ -3,12 +3,12 @@
 Status: ESP-IDF build, app-only flash at 0x10000 and independent verification
 passed. Boot reached app_main and detected CW2017, with no observed panic or
 driver errors. Settings partitions were untouched. The physical acceptance
-checks below and end-to-end bridge/voice validation remain pending.
+checks below, live text tasks and end-to-end voice validation remain pending.
 
-That flash/boot evidence belongs to the earlier static-cat baseline. The animated
-UI in PR #2 has passing CI builds and host snapshots, but has not been flashed.
-The checks below describe acceptance still to be performed after an authorized
-future deployment.
+The animated UI and idle-audio memory fix are now flashed and boot-verified.
+Authenticated Linux status returned HTTP 200 with the backend available over
+verified HTTPS; STT remains unavailable. The checks below still require physical
+acceptance and are not established by flash/boot or status connectivity alone.
 
 ## Display
 
