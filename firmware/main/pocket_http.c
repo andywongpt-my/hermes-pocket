@@ -7,9 +7,17 @@
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
+#include "lwip/sockets.h"
 static esp_http_client_handle_t client;
+static bool client_nodelay;
 static char previous_origin[193],previous_token[129],previous_ca[2049];
-typedef struct { char *out;size_t capacity,length;bool overflow; } response_buffer;
+typedef struct {
+ char *out;size_t capacity,length;bool overflow;
+ int64_t started_us;
+ unsigned connect_ms,headers_ms,response_ms;
+ bool connected,headers_sent,response_started,nodelay;
+} response_buffer;
 static bool clean(const char *s) {
  if(!s)return false;
  for(;*s;s++)if((unsigned char)*s<33 || (unsigned char)*s>126)return false;
@@ -17,6 +25,16 @@ static bool clean(const char *s) {
 }
 static esp_err_t event(esp_http_client_event_t *e) {
  response_buffer *b=e->user_data;
+ if(e->event_id==HTTP_EVENT_ON_CONNECTED){
+  int fd=esp_http_client_get_socket(e->client),enabled=1;
+  client_nodelay=fd>=0 && setsockopt(fd,IPPROTO_TCP,TCP_NODELAY,&enabled,sizeof enabled)==0;
+  if(b){b->nodelay=client_nodelay;b->connected=true;b->connect_ms=(unsigned)((esp_timer_get_time()-b->started_us)/1000);}
+ }
+ if(e->event_id==HTTP_EVENT_DISCONNECTED)client_nodelay=false;
+ if(e->event_id==HTTP_EVENT_HEADERS_SENT && b){b->headers_sent=true;b->headers_ms=(unsigned)((esp_timer_get_time()-b->started_us)/1000);}
+ if((e->event_id==HTTP_EVENT_ON_HEADER || e->event_id==HTTP_EVENT_ON_DATA) && b && !b->response_started){
+  b->response_started=true;b->response_ms=(unsigned)((esp_timer_get_time()-b->started_us)/1000);
+ }
  if(e->event_id==HTTP_EVENT_ON_DATA && b && e->data_len>0) {
   if((size_t)e->data_len>b->capacity-1-b->length){b->overflow=true;return ESP_ERR_INVALID_SIZE;}
   memcpy(b->out+b->length,e->data,(size_t)e->data_len);b->length+=(size_t)e->data_len;b->out[b->length]=0;
@@ -25,6 +43,7 @@ static esp_err_t event(esp_http_client_event_t *e) {
 }
 void pocket_http_close(void) {
  if(client){esp_http_client_cleanup(client);client=NULL;}
+ client_nodelay=false;
  memset(previous_token,0,sizeof(previous_token));previous_origin[0]=0;previous_ca[0]=0;
 }
 esp_err_t pocket_http_json(const char *origin,const char *path,const char *token,
@@ -45,7 +64,7 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  unsigned largest_before=(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
  result->free_heap=free_before;result->largest_block=largest_before;result->heap_measured=true;
  if(client && (strcmp(origin,previous_origin) || strcmp(token,previous_token) || strcmp(ca,previous_ca)))pocket_http_close();
- response_buffer buffer={.out=out,.capacity=cap};
+ response_buffer buffer={.out=out,.capacity=cap,.started_us=esp_timer_get_time(),.nodelay=client_nodelay};
  if(!client) {
   snprintf(previous_origin,sizeof(previous_origin),"%s",origin);snprintf(previous_token,sizeof(previous_token),"%s",token);
   snprintf(previous_ca,sizeof(previous_ca),"%s",ca);
@@ -64,6 +83,8 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  if(error==ESP_OK)error=esp_http_client_set_post_field(client,body?body:"",body?(int)strlen(body):0);
  if(error==ESP_OK)error=esp_http_client_perform(client);
  result->status=esp_http_client_get_status_code(client);result->length=buffer.length;
+ result->connect_ms=buffer.connect_ms;result->headers_ms=buffer.headers_ms;result->response_ms=buffer.response_ms;
+ result->connected=buffer.connected;result->headers_sent=buffer.headers_sent;result->response_started=buffer.response_started;result->nodelay=buffer.nodelay;
  if(buffer.overflow)error=ESP_ERR_INVALID_SIZE;
  esp_http_client_set_user_data(client,NULL);memset(auth,0,sizeof(auth));
  unsigned free_after=(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);

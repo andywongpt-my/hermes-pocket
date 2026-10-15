@@ -9,6 +9,8 @@ typedef struct {
  int tls_error,tls_code,verify_flags;
  unsigned free_heap,largest_block;
  bool heap_measured;
+ unsigned connect_ms,headers_ms,response_ms;
+ bool connected,headers_sent,response_started,nodelay;
 } pocket_http_result;
 esp_err_t pocket_http_json(const char *origin, const char *path,
  const char *device_token, const char *ca_pem, const char *json_body, char *output,

@@ -10,6 +10,7 @@
 #include "esp_sntp.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -34,6 +35,10 @@ static capture_diagnostics capture_diag;
 static unsigned max_upload_ms;
 static QueueHandle_t audio_queue,commands;
 static atomic_bool audio_unavailable;
+/* Worker-owned recovery: a failed restore must not redefine the idle mode. */
+static bool radio_restore_pending;
+static wifi_ps_type_t radio_saved_ps;
+static unsigned radio_saved_target;
 static void message(const char *value){portENTER_CRITICAL(&mux);snprintf(state.message,sizeof(state.message),"%s",value);portEXIT_CRITICAL(&mux);}
 void pocket_voice_read(pocket_voice_state *out){portENTER_CRITICAL(&mux);*out=state;portEXIT_CRITICAL(&mux);}
 void pocket_voice_release(void){portENTER_CRITICAL(&mux);held=false;portEXIT_CRITICAL(&mux);}
@@ -58,6 +63,25 @@ static void capture_message(void){
  message(reason==CAPTURE_READ_ERROR?"Audio input failed; recording discarded":
          reason==CAPTURE_NO_MEMORY || reason==CAPTURE_NO_TASK?"Not enough memory for recording":
          "Connection too slow; recording discarded");
+}
+static bool capture_radio_retry(void){
+ if(!radio_restore_pending)return true;
+ esp_err_t error=esp_wifi_set_ps(radio_saved_ps);
+ ESP_LOGI("pocket_voice_radio","target=%u stage=2 mode=%u error=%d",radio_saved_target,(unsigned)radio_saved_ps,error);
+ if(error==ESP_OK)radio_restore_pending=false;
+ return error==ESP_OK;
+}
+static bool capture_radio_start(unsigned target,wifi_ps_type_t *saved,bool *changed){
+ if(!capture_radio_retry())return false;
+ esp_err_t error=esp_wifi_get_ps(saved);
+ if(error!=ESP_OK){ESP_LOGI("pocket_voice_radio","target=%u stage=0 mode=-1 error=%d",target,error);return false;}
+ if(*saved!=WIFI_PS_NONE){error=esp_wifi_set_ps(WIFI_PS_NONE);*changed=error==ESP_OK;}
+ ESP_LOGI("pocket_voice_radio","target=%u stage=1 mode=%u error=%d",target,(unsigned)WIFI_PS_NONE,error);
+ return error==ESP_OK;
+}
+static bool capture_radio_restore(unsigned target,wifi_ps_type_t saved,bool *changed){
+ if(*changed){radio_restore_pending=true;radio_saved_ps=saved;radio_saved_target=target;}
+ bool restored=capture_radio_retry();if(restored)*changed=false;return restored;
 }
 void pocket_voice_begin(unsigned target){
  if(target>1 || !commands || audio_unavailable)return;
@@ -107,6 +131,13 @@ static cJSON *request(pocket_link_config *link,const char *path,const char *body
  pocket_http_result result={0};int64_t began=esp_timer_get_time();
  esp_err_t error=pocket_http_json(link->origin,path,link->token,link->ca,body,response,size,&result);
  unsigned duration_ms=(unsigned)((esp_timer_get_time()-began)/1000);
+ if(stage==VOICE_CHUNK && duration_ms>=100){
+  portENTER_CRITICAL(&mux);unsigned target=state.target;portEXIT_CRITICAL(&mux);
+  ESP_LOGI("pocket_upload","target=%u error=%d http=%d total_ms=%u connected=%u connect_ms=%u headers=%u headers_ms=%u response=%u response_ms=%u nodelay=%u free=%u largest=%u",
+   target,error,result.status,duration_ms,(unsigned)result.connected,result.connect_ms,(unsigned)result.headers_sent,result.headers_ms,
+   (unsigned)result.response_started,result.response_ms,(unsigned)result.nodelay,
+   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+ }
  if(stage==VOICE_CHUNK && duration_ms>max_upload_ms)max_upload_ms=duration_ms;
  if(error!=ESP_OK || result.status<200 || result.status>=300 || stage==VOICE_BEGIN || stage==VOICE_FINISH){
   portENTER_CRITICAL(&mux);unsigned target=state.target;portEXIT_CRITICAL(&mux);
@@ -196,6 +227,8 @@ static void network(void *unused){
  unsigned target,poll_target=0;
  for(;;){
   if(xQueueReceive(commands,&target,pdMS_TO_TICKS(5000))!=pdTRUE){
+   /* Retry only restoration of our own prior mode, once per idle cycle. */
+   capture_radio_retry();
    poll_target=pocket_actions_poll_target(poll_target);
    pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false,reachable=false;int http_status=0;
    pocket_diagnostics observed={.checked=true,.wifi=current.wifi_connected,.utc_ready=time(NULL)>=1704067200};
@@ -231,7 +264,7 @@ static void network(void *unused){
       connection before waiting; active audio/task requests keep their reuse. */
    pocket_http_close();
    memset(link,0,sizeof(*link));poll_target=1-poll_target;continue;
-  }bool started=false,pressed=false;unsigned sequence=0;char id[33],path[193],task[65]={0};
+  }bool started=false,pressed=false,restore_radio=false;wifi_ps_type_t saved_ps=WIFI_PS_NONE;unsigned sequence=0;char id[33],path[193],task[65]={0};
   portENTER_CRITICAL(&mux);capture_diag=(capture_diagnostics){0};capture_failed=false;capture_done=false;portEXIT_CRITICAL(&mux);max_upload_ms=0;
   const char *name=target?"linux":"windows";uint32_t random[4];esp_fill_random(random,sizeof(random));
   snprintf(id,sizeof(id),"%08lx%08lx%08lx%08lx",(unsigned long)random[0],(unsigned long)random[1],(unsigned long)random[2],(unsigned long)random[3]);
@@ -246,6 +279,8 @@ static void network(void *unused){
   portENTER_CRITICAL(&mux);state.online[target]=!strcmp(string(status,"backend"),"available");state.speech_ready[target]=stt;portEXIT_CRITICAL(&mux);cJSON_Delete(status);
   if(!stt){message("Speech recognition is not enabled");goto finished;}
   if(flags(&pressed) || !pressed){message("Hold OK to speak");goto finished;}
+  /* Only capture/upload needs an awake radio. Keep the user's idle power mode. */
+  if(!capture_radio_start(target,&saved_ps,&restore_radio)){message("Wi-Fi not ready for recording");goto finished;}
   /* Keep inactive audio out of the heap needed by certificate/signature checks. */
   audio_queue=xQueueCreate(CAPTURE_QUEUE_FRAMES,sizeof(capture_frame));frame=malloc(sizeof(*frame));body=malloc(CAPTURE_BODY_BYTES);
   if(!audio_queue || !frame || !body){message("Not enough memory for voice");goto finished;}
@@ -282,6 +317,7 @@ static void network(void *unused){
   /* The recorder is done and every queued frame was uploaded. Reclaim capture
      memory before finish/STT/task/speech requests can need another TLS handshake. */
   if(!release_capture(&frame,&body)){message("Audio stalled; restart device");goto abort_capture;}
+  if(!capture_radio_restore(target,saved_ps,&restore_radio)){message("Wi-Fi restore failed; recording discarded");goto abort_capture;}
   if(!begin_finish())goto abort_capture;
   snprintf(path,sizeof(path),"/targets/%s/audio/%s/finish",name,id);
   if(!post_empty(link,path,response,VOICE_FINISH))goto finished;
@@ -298,6 +334,7 @@ static void network(void *unused){
   if(bad)capture_message();
  finished:
   pocket_voice_release();
+  capture_radio_restore(target,saved_ps,&restore_radio);
   /* Let the bounded codec read finish before any subsequent capture/playback. */
   for(int i=0;i<20;i++){portENTER_CRITICAL(&mux);bool recording=state.recording;portEXIT_CRITICAL(&mux);if(!recording)break;vTaskDelay(pdMS_TO_TICKS(100));}
   if(started){

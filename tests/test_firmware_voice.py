@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 HEADERS = {
+    'esp_wifi.h': '#pragma once\n#include "esp_err.h"\ntypedef enum {WIFI_PS_NONE,WIFI_PS_MIN_MODEM,WIFI_PS_MAX_MODEM} wifi_ps_type_t;\nesp_err_t esp_wifi_get_ps(wifi_ps_type_t *);\nesp_err_t esp_wifi_set_ps(wifi_ps_type_t);\n',
     'esp_err.h': '#pragma once\ntypedef int esp_err_t;\n#define ESP_OK 0\n#define ESP_FAIL -1\n#define ESP_ERR_NO_MEM 0x101\n',
     'time.h': '#pragma once\n#include <stdint.h>\ntypedef int64_t time_t;\ntime_t test_time(time_t *);\n#define time test_time\n',
     'esp_log.h': '#pragma once\nvoid test_log(const char *,const char *,...);\n#define ESP_LOGI(tag,...) test_log(tag,__VA_ARGS__)\n',
@@ -81,6 +82,7 @@ HARNESS = r'''
 #include <string.h>
 #include <time.h>
 #include "pocket_usage_client.h"
+#include "esp_wifi.h"
 static void *test_malloc(size_t);
 static void test_free(void *);
 #define malloc test_malloc
@@ -93,6 +95,9 @@ static int mode, command_reads, audio_attempts, status_calls, posts, queue_live,
 static int retained_capture, playback_calls, finish_calls, abort_calls, capture_reads;
 static int transport_failures,status_successes,http_closes;
 static int chunk_attempts;
+static wifi_ps_type_t wifi_ps;
+static unsigned radio_awake_calls,radio_restore_calls;
+static bool capture_low_latency,radio_restored_before_finish;
 static int status_shape;
 static unsigned volume_calls,last_volume,capture_volume,playback_volume,volume_changes;
 static int64_t elapsed_ms,last_exchange_ms;
@@ -111,6 +116,13 @@ static bool allocation_audio[16];
 static char status_log[128];
 static char capture_log[256],request_log[256];
 static char endpoint[193];
+/* Virtual 16kHz codec/RTOS producer while the real network worker is blocked.
+   Delays are injected at HTTP's external boundary, independent of radio flags. */
+static capture_frame *scheduled_frame;
+static bool scheduled_recording;
+static unsigned produced_frames,acknowledged_frames;
+static int64_t next_frame_ms,record_started_ms;
+static void produce_until(int64_t until);
 static void track_peak(void) { size_t bytes=audio_bytes+queue_bytes+record_stack;if(bytes>peak_audio_bytes)peak_audio_bytes=bytes; }
 static void *test_malloc(size_t size) {
  bool audio=size!=sizeof(pocket_link_config) && size!=8192;
@@ -129,6 +141,11 @@ size_t heap_caps_get_largest_free_block(unsigned caps) { (void)caps;return 24000
 void esp_sntp_setoperatingmode(int unused) { (void)unused; }
 void esp_sntp_setservername(int unused,const char *name) { (void)unused;(void)name; }
 void esp_sntp_init(void) { }
+esp_err_t esp_wifi_get_ps(wifi_ps_type_t *out) { if(mode==23)return ESP_FAIL;*out=wifi_ps;return ESP_OK; }
+esp_err_t esp_wifi_set_ps(wifi_ps_type_t value) {
+ assert(!record_active);if(value==WIFI_PS_NONE){radio_awake_calls++;if(mode==22)return ESP_FAIL;}else {radio_restore_calls++;if(mode==25 || (mode==24 && radio_restore_calls==1))return ESP_FAIL;}
+ wifi_ps=value;return ESP_OK;
+}
 void pocket_setup_read(pocket_setup_state *out) { memset(out,0,sizeof(*out));out->wifi_connected=mode!=13; }
 bool pocket_setup_link(unsigned target,pocket_link_config *out) { (void)target;memset(out,0,sizeof(*out));memcpy(out->origin,"https://fixture.invalid",sizeof("https://fixture.invalid"));return true; }
 QueueHandle_t xQueueCreate(unsigned count,unsigned size) { if(size!=sizeof(unsigned)){assert(count*size<=sizeof(packet_data));queue_count=count;queue_item_size=size;queue_bytes=count*size;queue_live++;track_peak();return &audio_handle;}return &command_handle; }
@@ -136,14 +153,29 @@ void vQueueDelete(QueueHandle_t queue) { assert(queue==&audio_handle && !state.r
 void xQueueReset(QueueHandle_t queue) { assert(queue==&audio_handle);packets=0;queue_head=queue_tail=0; }
 unsigned uxQueueMessagesWaiting(QueueHandle_t queue) { assert(queue==&audio_handle);return (unsigned)packets; }
 BaseType_t xQueueSend(QueueHandle_t queue,const void *value,TickType_t ticks) { (void)ticks;if(queue==&audio_handle){if((unsigned)packets==queue_count)return pdFALSE;memcpy(packet_data+queue_tail*queue_item_size,value,queue_item_size);queue_tail=(queue_tail+1)%queue_count;packets++;}return pdTRUE; }
+static void produce_until(int64_t until){
+ while(scheduled_recording && next_frame_ms<=until){
+  elapsed_ms=next_frame_ms;scheduled_frame->size=2048;memset(scheduled_frame->pcm,0,2048);
+  produced_frames++;capture_diag.bytes+=2048;capture_diag.max_read_ms=64;
+  if(xQueueSend(audio_queue,scheduled_frame,0)!=pdTRUE){capture_diag.queue_peak=queue_count;capture_error(CAPTURE_QUEUE_FULL,ESP_OK);scheduled_recording=false;}
+  else {if((unsigned)packets>capture_diag.queue_peak)capture_diag.queue_peak=(unsigned)packets;if(produced_frames==32)scheduled_recording=false;}
+  next_frame_ms+=64;
+  if(!scheduled_recording){capture_diag.capture_ms=(unsigned)(elapsed_ms-record_started_ms);capture_done=true;state.recording=false;held=false;test_free(scheduled_frame);scheduled_frame=NULL;}
+ }
+ elapsed_ms=until;
+}
 BaseType_t xQueueReceive(QueueHandle_t queue,void *out,TickType_t ticks) {
  if(queue==commands){if(command_reads++>=(mode==10?6:mode==11?4:1)){if((mode>0 && mode<10) || mode==12 || mode==15 || mode==16)assert(!usage_polls && !usage_disconnects);longjmp(stopped,1);}elapsed_ms+=ticks;*(unsigned *)out=1;state.target=1;held=mode!=2;bool idle=mode==0 || mode==10 || mode==11 || mode==13 || mode==14;state.busy=!idle;return idle?pdFALSE:pdTRUE;}
- assert(queue==&audio_handle);if(mode==7)cancelled=true;if(packets){memcpy(out,packet_data+queue_head*queue_item_size,queue_item_size);queue_head=(queue_head+1)%queue_count;packets--;return pdTRUE;}return pdFALSE;
+ assert(queue==&audio_handle);if(mode==7)cancelled=true;
+ if(mode>=26 && mode<=28 && scheduled_recording && !packets)produce_until(next_frame_ms);
+ if(packets){memcpy(out,packet_data+queue_head*queue_item_size,queue_item_size);queue_head=(queue_head+1)%queue_count;packets--;return pdTRUE;}return pdFALSE;
 }
 BaseType_t xTaskCreate(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,TaskHandle_t *handle) {
  /* Conservatively retain a self-deleted recorder's stack until the test ends;
     FreeRTOS idle cleanup need not have run before subsequent TLS requests. */
- (void)priority;(void)handle;if(!strcmp(name,"pocket_record")){recorder_tasks++;if(mode==5)return pdFALSE;if(mode==7)return pdPASS;record_stack=stack;track_peak();record_active=1;fn(arg);record_active=0;}return pdPASS;
+ (void)priority;(void)handle;if(!strcmp(name,"pocket_record")){recorder_tasks++;if(mode==5)return pdFALSE;if(mode==7)return pdPASS;record_stack=stack;track_peak();
+  if(mode>=26 && mode<=28){scheduled_frame=test_malloc(sizeof(*scheduled_frame));scheduled_recording=true;record_started_ms=next_frame_ms=elapsed_ms;return pdPASS;}
+  record_active=1;fn(arg);record_active=0;}return pdPASS;
 }
 void vTaskDelete(TaskHandle_t unused) { (void)unused;if(record_active){task_deletes++;return;}longjmp(stopped,2); }
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
@@ -152,7 +184,7 @@ void xTaskNotifyGive(TaskHandle_t task) { (void)task; }
 esp_err_t bsp_audio_init(void) { return ESP_OK; }
 esp_err_t bsp_audio_set_format(unsigned a,unsigned b,unsigned c) { assert(a==16000 && b==16 && c==1);return ESP_OK; }
 void bsp_audio_set_volume(unsigned volume) { assert(!record_active && volume<=100);volume_calls++;last_volume=volume; }
-esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);capture_volume=last_volume;capture_reads++;elapsed_ms+=64;if(mode!=9)held=false;return mode==15?ESP_FAIL:ESP_OK; }
+esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);capture_volume=last_volume;capture_low_latency=wifi_ps==WIFI_PS_NONE;capture_reads++;elapsed_ms+=64;if(mode!=9)held=false;return mode==15?ESP_FAIL:ESP_OK; }
 esp_err_t bsp_audio_write(const void *data,size_t size) { (void)data;playback_volume=last_volume;playback_calls++;playback_bytes=size;if(mode==19)pocket_voice_cancel();if(mode==21 && playback_calls==1){unsigned before=volume_calls;pocket_voice_set_volume(15);assert(volume_calls==before);volume_changes++;}return ESP_OK; }
 int mbedtls_base64_encode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;*size=4*((bytes+2)/3);if(cap<=*size)return -1;memset(out,'A',*size);if(bytes%3)out[*size-1]='=';if(bytes%3==1)out[*size-2]='=';out[*size]=0;uploaded_bytes=bytes;return 0; }
 int mbedtls_base64_decode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;(void)bytes;*size=mode==8?4096:2;if(cap<*size)return -1;memset(out,0,*size);return 0; }
@@ -161,7 +193,7 @@ static cJSON submitted={"submitted",0,0,2}, completed={"completed",0,0,2}, ready
 static cJSON task_id={"fixture-task",0,0,2}, text={"synthetic",0,0,2}, chunk_data={"synthetic-pcm",0,0,2}, chunks={NULL,1,1,3};
 cJSON *cJSON_Parse(const char *text) { (void)text;json_live++;return &root; }
 void cJSON_Delete(cJSON *value) { if(value){assert(json_live>0);json_live--;} }
-static cJSON *fixture_item(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if(mode!=8 && mode<18)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks")){chunks.valueint=mode==19 || mode==21?2:1;chunks.valuedouble=chunks.valueint;return &chunks;}if(!strcmp(key,"data"))return &chunk_data;return NULL; }
+static cJSON *fixture_item(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if((mode!=8 && mode<18) || mode>=26)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks")){chunks.valueint=mode==19 || mode==21?2:1;chunks.valuedouble=chunks.valueint;return &chunks;}if(!strcmp(key,"data"))return &chunk_data;return NULL; }
 cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value,const char *key) {
  if(status_shape && (!strcmp(key,"stt") || !strcmp(key,"tts")))return status_shape==1?NULL:&available;
  return fixture_item(value,key);
@@ -172,9 +204,14 @@ int cJSON_IsBool(const cJSON *value) { return value && (value->type==0 || value-
 int cJSON_IsNumber(const cJSON *value) { return value && value->type==3; }
 esp_err_t pocket_http_json(const char *origin,const char *path,const char *token,const char *ca,const char *body,char *out,size_t cap,pocket_http_result *result) {
  (void)origin;(void)token;(void)ca;assert(cap>=3);snprintf(endpoint,sizeof(endpoint),"%s",path);if(strstr(path,"/status"))status_calls++;if(body)posts++;
- if(strstr(path,"/finish")){finish_calls++;if(mode==18)pocket_voice_cancel();if(mode==20 || mode==21){unsigned before=volume_calls;pocket_voice_set_volume(89);assert(volume_calls==before);}}
+ if(strstr(path,"/finish")){radio_restored_before_finish=wifi_ps==WIFI_PS_MIN_MODEM;finish_calls++;if(mode==18)pocket_voice_cancel();if(mode==20 || mode==21){unsigned before=volume_calls;pocket_voice_set_volume(89);assert(volume_calls==before);}}
  if(strstr(path,"/abort"))abort_calls++;
  if(body && strstr(path,"/chunk"))chunk_attempts++;
+ if(mode>=26 && mode<=28 && body && strstr(path,"/chunk")){
+  assert(!strncmp(body,"{\"sequence\":",12));char *end=NULL;unsigned long sequence=strtoul(body+12,&end,10);assert(end!=body+12 && *end==',' && sequence==acknowledged_frames);
+  assert(uploaded_bytes==2048);unsigned delay=mode==27?1175:mode==28 && acknowledged_frames==0?200:20;
+  produce_until(elapsed_ms+delay);acknowledged_frames++;
+ }
  /* Model the deployed bridge's three-second idle expiry. Old firmware reuses
     this dead connection; fresh status connections must never hit that path. */
  if(mode==11 || (mode==10 && transport_open && elapsed_ms-last_exchange_ms>=3000) || (mode==12 && body) || (mode==16 && body && strstr(path,"/chunk"))){
@@ -206,11 +243,35 @@ static void reset(int value) {
  transport_failures=status_successes=http_closes=chunk_attempts=0;elapsed_ms=last_exchange_ms=0;transport_open=false;
  usage_polls=usage_disconnects=json_live=readonly_polls=readonly_disconnects=0;usage_targets=0;queue_voice_during_usage=false;
  volume_calls=last_volume=capture_volume=playback_volume=volume_changes=0;
+ wifi_ps=WIFI_PS_MIN_MODEM;radio_awake_calls=radio_restore_calls=0;capture_low_latency=radio_restored_before_finish=false;
+ scheduled_frame=NULL;scheduled_recording=false;produced_frames=acknowledged_frames=0;next_frame_ms=record_started_ms=0;
  memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=capture_log[0]=request_log[0]=0;
  pocket_voice_set_volume(60);pocket_voice_begin(1);
 }
 #define CHECK(c,m) do { if(!(c)){puts("FAIL: " m);return 1;} } while(0)
 int main(int argc,char **argv) {
+ if(argc>1 && !strcmp(argv[1],"cadence")){
+  for(int value=26;value<=28;value++){
+   reset(value);int cadence_exit=setjmp(stopped);if(!cadence_exit)network(NULL);
+   if(value==27){CHECK(capture_diag.reason==CAPTURE_QUEUE_FULL && abort_calls==1 && !finish_calls && acknowledged_frames==1,"1175ms stall silently dropped audio or submitted an incomplete capture");CHECK(strstr(capture_log,"max_upload_ms=1175")!=NULL,"measured upload stall lost numeric evidence");}
+   else {CHECK(!capture_diag.reason && produced_frames==32 && acknowledged_frames==32 && finish_calls==1 && !abort_calls,"sustainable cadence or bounded jitter lost/duplicated PCM frames");CHECK(capture_diag.bytes==65536,"complete PCM byte count changed");}
+   CHECK(wifi_ps==WIFI_PS_MIN_MODEM && !queue_live && !scheduled_frame && !state.busy && peak_audio_bytes<=22000,"cadence scenario leaked resources or exceeded memory budget");
+  }
+  reset(0);puts("PASS: real worker uploads 65536 PCM bytes in order under20ms cadence/200ms jitter and explicitly discards1175ms stalls");return 0;
+ }
+ if(argc>1 && !strcmp(argv[1],"radio")){
+  reset(8);int radio_exit=setjmp(stopped);if(!radio_exit)network(NULL);
+  CHECK(capture_low_latency && radio_awake_calls==1,"capture kept DTIM power saving enabled");
+  CHECK(wifi_ps==WIFI_PS_MIN_MODEM && radio_restore_calls==1 && radio_restored_before_finish,"power saving was not restored before finish/provider waiting");
+  CHECK(peak_audio_bytes<=22000 && !queue_live && !state.busy,"low-latency profile expanded or retained capture memory");
+  for(int value=3;value<=9;value++){reset(value);radio_exit=setjmp(stopped);if(!radio_exit)network(NULL);CHECK(wifi_ps==WIFI_PS_MIN_MODEM && radio_awake_calls==radio_restore_calls,"capture failure retained the awake radio profile");}
+  reset(2);radio_exit=setjmp(stopped);if(!radio_exit)network(NULL);CHECK(!radio_awake_calls && !posts,"released gesture changed radio or started audio");
+  for(int value=22;value<=23;value++){reset(value);radio_exit=setjmp(stopped);if(!radio_exit)network(NULL);CHECK(!posts && !recorder_tasks && wifi_ps==WIFI_PS_MIN_MODEM,"unavailable radio profile admitted a recording");}
+  reset(24);radio_exit=setjmp(stopped);if(!radio_exit)network(NULL);CHECK(wifi_ps==WIFI_PS_MIN_MODEM && radio_restore_calls==2 && !finish_calls && abort_calls==1,"failed power restoration was forgotten or submitted audio to providers");
+  reset(25);radio_exit=setjmp(stopped);if(!radio_exit)network(NULL);CHECK(wifi_ps==WIFI_PS_NONE && !finish_calls,"persistent restoration failure submitted audio");
+  mode=8;wifi_ps_type_t saved=WIFI_PS_NONE;bool changed=false;CHECK(capture_radio_start(1,&saved,&changed) && saved==WIFI_PS_MIN_MODEM,"next capture overwrote the pending original idle power mode");capture_radio_restore(1,saved,&changed);CHECK(wifi_ps==WIFI_PS_MIN_MODEM,"pending original radio mode was not recovered");
+  reset(0);puts("PASS: capture radio latency scope, failure cleanup and unchanged audio memory budget");return 0;
+ }
  if(argc>1 && !strcmp(argv[1],"controls")){
   pocket_voice_state observed;pocket_voice_read(&observed);CHECK(observed.volume==60,"default volume is not 60");
   pocket_voice_set_volume(0);pocket_voice_read(&observed);CHECK(observed.volume==0,"mute was not retained");
@@ -357,3 +418,9 @@ class FirmwareVoiceTests(unittest.TestCase):
 
     def test_worker_volume_and_cancel_boundaries(self):
         self._exercise(['controls'])
+
+    def test_capture_radio_latency_scope_and_failure_cleanup(self):
+        self._exercise(['radio'])
+
+    def test_pcm_cadence_jitter_and_measured_upload_stall(self):
+        self._exercise(['cadence'])
