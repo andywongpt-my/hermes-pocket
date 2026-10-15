@@ -8,6 +8,7 @@ import unittest
 
 
 HEADERS = {
+    'esp_heap_caps.h': '#pragma once\n#include <stddef.h>\n#define MALLOC_CAP_INTERNAL 1\n#define MALLOC_CAP_8BIT 2\nsize_t heap_caps_get_free_size(unsigned);\nsize_t heap_caps_get_largest_free_block(unsigned);\n',
     'time.h': '#pragma once\n#include <stdint.h>\ntypedef int64_t time_t;\ntime_t pocket_test_time(time_t *);\n#define time pocket_test_time\n',
     'esp_err.h': '''#pragma once
 typedef int esp_err_t;
@@ -46,6 +47,7 @@ esp_err_t esp_http_client_get_and_clear_last_tls_error(esp_http_client_handle_t,
     'esp_log.h': '''#pragma once
 void test_log(const char *,const char *,...);
 #define ESP_LOGW(tag,...) test_log(tag,__VA_ARGS__)
+#define ESP_LOGI(tag,...) test_log(tag,__VA_ARGS__)
 ''',
 }
 
@@ -66,6 +68,8 @@ static time_t epoch;
 static char diagnostic[256], log_tag[32];
 static const char token[]="SYNTHETIC_PRIVATE_TOKEN_0123456789abcdef";
 time_t pocket_test_time(time_t *out) { if(out)*out=epoch;return epoch; }
+size_t heap_caps_get_free_size(unsigned caps) { (void)caps;return 64000; }
+size_t heap_caps_get_largest_free_block(unsigned caps) { (void)caps;return 48000; }
 void test_log(const char *tag,const char *fmt,...) {
  va_list args;va_start(args,fmt);vsnprintf(diagnostic,sizeof(diagnostic),fmt,args);va_end(args);
  snprintf(log_tag,sizeof(log_tag),"%s",tag);logs++;
@@ -101,13 +105,14 @@ int main(void) {
  CHECK(reads==1,"TLS verification flags were not retrieved before cleanup");
  CHECK(performs==1 && cleanups==1 && out[0]==0 && result.length==0,"failure cleanup or no-retry contract changed");
  CHECK(logs==1 && !strcmp(log_tag,"pocket_tls"),"missing single diagnostic record");
- CHECK(!strcmp(diagnostic,"target=1 http=-1 tls=0x801a mbedtls=0x2700 verify=0x8 ca=1 utc_ready=1"),"diagnostic must contain only the approved numeric fields and booleans");
+ CHECK(!strcmp(diagnostic,"target=1 http=-1 tls=0x801a mbedtls=0x2700 verify=0x8 ca=1 utc_ready=1 free_before=64000 largest_before=48000 free_after=64000 largest_after=48000"),"diagnostic must contain only the approved numeric fields and booleans");
  reset(false,0,1,0x200);
  CHECK(pocket_http_json("https://synthetic-private-host.invalid","/targets/windows/status",token,"",NULL,out,sizeof(out),&result)==ESP_FAIL,"bundle failure changed");
- CHECK(!strcmp(diagnostic,"target=0 http=-1 tls=0x801a mbedtls=0x2700 verify=0x200 ca=0 utc_ready=0"),"target, bundle, or UTC attribution lost");
+ CHECK(!strcmp(diagnostic,"target=0 http=-1 tls=0x801a mbedtls=0x2700 verify=0x200 ca=0 utc_ready=0 free_before=64000 largest_before=48000 free_after=64000 largest_after=48000"),"target, bundle, or UTC attribution lost");
  reset(true,1735689600,0,0);
  CHECK(pocket_http_json("https://synthetic-private-host.invalid","/targets/linux/status",token,"SYNTHETIC_PUBLIC_CA",NULL,out,sizeof(out),&result)==ESP_OK,"success changed");
- CHECK(logs==0 && reads==0 && cleanups==0 && result.status==200,"successful requests must not consume TLS errors or log diagnostics");
+ CHECK(logs==1 && reads==0 && cleanups==0 && result.status==200,"status success must preserve the client and TLS error state");
+ CHECK(!strcmp(log_tag,"pocket_tls_heap") && !strcmp(diagnostic,"target=1 http=200 free_before=64000 largest_before=48000 free_after=64000 largest_after=48000"),"successful status heap evidence must be numeric-only");
  pocket_http_close();puts("PASS: numeric-only TLS diagnostics survive cleanup with target/CA/UTC attribution");return 0;
 }
 '''

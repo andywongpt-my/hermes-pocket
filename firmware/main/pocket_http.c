@@ -6,6 +6,7 @@
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 static esp_http_client_handle_t client;
 static char previous_origin[193],previous_token[129],previous_ca[2049];
 typedef struct { char *out;size_t capacity,length;bool overflow; } response_buffer;
@@ -39,6 +40,9 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  char url[386];size_t n=strlen(origin);
  int size=snprintf(url,sizeof(url),"%.*s%s",(int)(n-(origin[n-1]=='/')),origin,path);
  if(size<0 || size>=(int)sizeof(url))return ESP_ERR_INVALID_SIZE;
+ unsigned target=!strncmp(path,"/targets/windows/",17)?0u:!strncmp(path,"/targets/linux/",15)?1u:2u;
+ unsigned free_before=(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+ unsigned largest_before=(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
  if(client && (strcmp(origin,previous_origin) || strcmp(token,previous_token) || strcmp(ca,previous_ca)))pocket_http_close();
  response_buffer buffer={.out=out,.capacity=cap};
  if(!client) {
@@ -61,15 +65,19 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  result->status=esp_http_client_get_status_code(client);result->length=buffer.length;
  if(buffer.overflow)error=ESP_ERR_INVALID_SIZE;
  esp_http_client_set_user_data(client,NULL);memset(auth,0,sizeof(auth));
+ unsigned free_after=(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+ unsigned largest_after=(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
  if(error!=ESP_OK){
   int tls_code=0,verify_flags=0;
   esp_err_t tls_error=esp_http_client_get_and_clear_last_tls_error(client,&tls_code,&verify_flags);
-  unsigned target=!strncmp(path,"/targets/windows/",17)?0u:!strncmp(path,"/targets/linux/",15)?1u:2u;
   /* Numeric-only diagnostics; never include endpoints, credentials or response data. */
-  ESP_LOGW("pocket_tls","target=%u http=%d tls=0x%x mbedtls=0x%x verify=0x%x ca=%u utc_ready=%u",
+  ESP_LOGW("pocket_tls","target=%u http=%d tls=0x%x mbedtls=0x%x verify=0x%x ca=%u utc_ready=%u free_before=%u largest_before=%u free_after=%u largest_after=%u",
    target,error,(unsigned)tls_error,(unsigned)tls_code,(unsigned)verify_flags,
-   (unsigned)(previous_ca[0]!=0),(unsigned)(time(NULL)>=1704067200));
+   (unsigned)(previous_ca[0]!=0),(unsigned)(time(NULL)>=1704067200),free_before,largest_before,free_after,largest_after);
   out[0]=0;result->length=0;pocket_http_close();
+ }else if(!strcmp(path,"/targets/linux/status") || !strcmp(path,"/targets/windows/status")){
+  ESP_LOGI("pocket_tls_heap","target=%u http=%d free_before=%u largest_before=%u free_after=%u largest_after=%u",
+   target,result->status,free_before,largest_before,free_after,largest_after);
  }
  return error;
 }

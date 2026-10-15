@@ -6,6 +6,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_sntp.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -21,7 +22,6 @@ static portMUX_TYPE mux=portMUX_INITIALIZER_UNLOCKED;
 static pocket_voice_state state;
 static bool held,cancelled,capture_done,capture_failed;
 static QueueHandle_t audio_queue,commands;
-static TaskHandle_t recorder;
 static atomic_bool audio_unavailable;
 static void message(const char *value){portENTER_CRITICAL(&mux);snprintf(state.message,sizeof(state.message),"%s",value);portEXIT_CRITICAL(&mux);}
 void pocket_voice_read(pocket_voice_state *out){portENTER_CRITICAL(&mux);*out=state;portEXIT_CRITICAL(&mux);}
@@ -38,17 +38,20 @@ void pocket_voice_begin(unsigned target){
 }
 static void record(void *unused){
  (void)unused;audio_frame *frame=malloc(sizeof(*frame));
- if(!frame){audio_unavailable=true;message("Audio allocation failed; restart");vTaskDelete(NULL);return;}
- for(;;){
-  ulTaskNotifyTake(pdTRUE,portMAX_DELAY);size_t total=0;bool pressed=false;
-  for(;;){
-   if(flags(&pressed) || !pressed || total>=960000)break;
-   frame->size=sizeof(frame->pcm);if(frame->size>960000-total)frame->size=960000-total;
-   if(bsp_audio_read(frame->pcm,frame->size)!=ESP_OK || xQueueSend(audio_queue,frame,0)!=pdTRUE){portENTER_CRITICAL(&mux);capture_failed=true;held=false;portEXIT_CRITICAL(&mux);break;}
-   total+=frame->size;
-  }
-  portENTER_CRITICAL(&mux);capture_done=true;state.recording=false;held=false;portEXIT_CRITICAL(&mux);
+ if(!frame){
+  portENTER_CRITICAL(&mux);capture_failed=true;capture_done=true;state.recording=false;held=false;portEXIT_CRITICAL(&mux);
+  message("Not enough memory for recording");vTaskDelete(NULL);return;
  }
+ size_t total=0;bool pressed=false;
+ for(;;){
+  if(flags(&pressed) || !pressed || total>=960000)break;
+  frame->size=sizeof(frame->pcm);if(frame->size>960000-total)frame->size=960000-total;
+  if(bsp_audio_read(frame->pcm,frame->size)!=ESP_OK || xQueueSend(audio_queue,frame,0)!=pdTRUE){portENTER_CRITICAL(&mux);capture_failed=true;held=false;portEXIT_CRITICAL(&mux);break;}
+  total+=frame->size;
+ }
+ free(frame);
+ portENTER_CRITICAL(&mux);capture_done=true;state.recording=false;held=false;portEXIT_CRITICAL(&mux);
+ vTaskDelete(NULL);
 }
 static cJSON *request(pocket_link_config *link,const char *path,const char *body,char *response,size_t size){
  pocket_http_result result;
@@ -125,21 +128,23 @@ static void play(pocket_link_config *link,const char *target,const char *task,ch
 }
 static void network(void *unused){
  (void)unused;
- pocket_link_config *link=malloc(sizeof(*link));audio_frame *frame=malloc(sizeof(*frame));
- char *response=malloc(8192),*body=malloc(6000),*encoded=malloc(5465);
- if(!link || !frame || !response || !body || !encoded){audio_unavailable=true;message("Not enough memory for voice");free(link);free(frame);free(response);free(body);free(encoded);vTaskDelete(NULL);return;}
+ pocket_link_config *link=malloc(sizeof(*link));char *response=malloc(8192);
+ audio_frame *frame=NULL;char *body=NULL,*encoded=NULL;
+ if(!link || !response){audio_unavailable=true;message("Not enough memory for connection");free(link);free(response);vTaskDelete(NULL);return;}
  unsigned target,poll_target=0;
  for(;;){
   if(xQueueReceive(commands,&target,pdMS_TO_TICKS(5000))!=pdTRUE){
-   pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false;
+   pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false;int http_status=0;
    if(current.wifi_connected && time(NULL)>=1704067200 && pocket_setup_link(poll_target,link)){
     char route[64];snprintf(route,sizeof(route),"/targets/%s/status",poll_target?"linux":"windows");pocket_http_result result;
-    if(pocket_http_json(link->origin,route,link->token,link->ca,NULL,response,8192,&result)==ESP_OK && result.status==200){
+    esp_err_t error=pocket_http_json(link->origin,route,link->token,link->ca,NULL,response,8192,&result);http_status=result.status;
+    if(error==ESP_OK && http_status==200){
      cJSON *j=cJSON_Parse(response);online=!strcmp(string(j,"backend"),"available");
      cJSON *v=cJSON_GetObjectItemCaseSensitive(j,"voice");ready=cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v,"stt"));cJSON_Delete(j);
     }
    }
-   portENTER_CRITICAL(&mux);state.online[poll_target]=online;state.speech_ready[poll_target]=ready;portEXIT_CRITICAL(&mux);
+   portENTER_CRITICAL(&mux);bool changed=state.online[poll_target]!=online || state.speech_ready[poll_target]!=ready;state.online[poll_target]=online;state.speech_ready[poll_target]=ready;portEXIT_CRITICAL(&mux);
+   if(changed)ESP_LOGI("pocket_status","target=%u http=%d backend_available=%u stt=%u",poll_target,http_status,(unsigned)online,(unsigned)ready);
    memset(link,0,sizeof(*link));poll_target=1-poll_target;continue;
   }bool started=false,pressed=false;char id[33],path[193],task[65]={0};
   const char *name=target?"linux":"windows";uint32_t random[4];esp_fill_random(random,sizeof(random));
@@ -155,6 +160,9 @@ static void network(void *unused){
   portENTER_CRITICAL(&mux);state.online[target]=!strcmp(string(status,"backend"),"available");state.speech_ready[target]=stt;portEXIT_CRITICAL(&mux);cJSON_Delete(status);
   if(!stt){message("Speech recognition is not enabled");goto finished;}
   if(flags(&pressed) || !pressed){message("Hold OK to speak");goto finished;}
+  /* Keep inactive audio out of the heap needed by certificate/signature checks. */
+  audio_queue=xQueueCreate(6,sizeof(audio_frame));frame=malloc(sizeof(*frame));body=malloc(6000);encoded=malloc(5465);
+  if(!audio_queue || !frame || !body || !encoded){message("Not enough memory for voice");goto finished;}
   if(bsp_audio_init()!=ESP_OK || bsp_audio_set_format(16000,16,1)!=ESP_OK){message("Audio hardware unavailable");goto finished;}
   bsp_audio_set_volume(60);
   snprintf(path,sizeof(path),"/targets/%s/audio/%s",name,id);
@@ -162,7 +170,11 @@ static void network(void *unused){
   if(flags(&pressed) || !pressed)goto abort_capture;
   xQueueReset(audio_queue);
   portENTER_CRITICAL(&mux);capture_done=false;capture_failed=false;state.recording=true;portEXIT_CRITICAL(&mux);
-  message("Listening... release OK to send");xTaskNotifyGive(recorder);
+  message("Listening... release OK to send");
+  if(xTaskCreate(record,"pocket_record",6144,NULL,5,NULL)!=pdPASS){
+   portENTER_CRITICAL(&mux);capture_failed=true;capture_done=true;state.recording=false;portEXIT_CRITICAL(&mux);
+   message("Not enough memory for recording");goto abort_capture;
+  }
   unsigned sequence=0;bool failed=false;
   for(;;){
    if(flags(&pressed)){failed=true;break;}
@@ -191,17 +203,21 @@ static void network(void *unused){
   pocket_voice_release();
   /* Let the bounded codec read finish before any subsequent capture/playback. */
   for(int i=0;i<20;i++){portENTER_CRITICAL(&mux);bool recording=state.recording;portEXIT_CRITICAL(&mux);if(!recording)break;vTaskDelay(pdMS_TO_TICKS(100));}
-  memset(frame,0,sizeof(*frame));memset(body,0,6000);memset(encoded,0,5465);memset(link,0,sizeof(*link));
   portENTER_CRITICAL(&mux);state.busy=state.recording;state.playing=false;bool fault=state.recording;portEXIT_CRITICAL(&mux);
+  /* A stalled codec may still use the queue; retain it until restart in that case. */
+  if(!fault && audio_queue){vQueueDelete(audio_queue);audio_queue=NULL;}
+  if(frame){memset(frame,0,sizeof(*frame));free(frame);frame=NULL;}
+  if(body){memset(body,0,6000);free(body);body=NULL;}
+  if(encoded){memset(encoded,0,5465);free(encoded);encoded=NULL;}
+  memset(link,0,sizeof(*link));
   if(fault)message("Audio stalled; restart device");
   pocket_http_close();
  }
 }
 esp_err_t pocket_voice_init(void){
- audio_queue=xQueueCreate(6,sizeof(audio_frame));commands=xQueueCreate(1,sizeof(unsigned));
- if(!audio_queue || !commands)return ESP_ERR_NO_MEM;
+ commands=xQueueCreate(1,sizeof(unsigned));
+ if(!commands)return ESP_ERR_NO_MEM;
  esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);esp_sntp_setservername(0,"pool.ntp.org");esp_sntp_init();
- if(xTaskCreate(record,"pocket_record",6144,NULL,5,&recorder)!=pdPASS)return ESP_ERR_NO_MEM;
- if(xTaskCreate(network,"pocket_voice",12288,NULL,4,NULL)!=pdPASS)return ESP_ERR_NO_MEM;
+ if(xTaskCreate(network,"pocket_voice",12288,NULL,4,NULL)!=pdPASS){vQueueDelete(commands);commands=NULL;return ESP_ERR_NO_MEM;}
  message("Hold OK to talk");return ESP_OK;
 }
