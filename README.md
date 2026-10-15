@@ -14,6 +14,11 @@ Boot reached app_main and detected the CW2017 gauge, with no observed panic or
 driver errors. Physical UI acceptance and end-to-end bridge/voice validation remain
 pending. It is not the completed V1 release.
 
+The device verification above applies to the earlier static-cat baseline. The
+animated UI introduced in PR #2 is a source update with passing CI builds and
+host snapshots; it has not been flashed or physically accepted. This merge does
+not activate a bridge or change device settings.
+
 The Hermes bridge remains inactive, with end-to-end chat and voice validation
 pending. Tailscale is not integrated into the Pocket firmware. A router gateway
 is planned; its model is unknown and router setup has not been completed.
@@ -43,9 +48,11 @@ python3 -m pocket.simulator
 python3 -m pocket.server --demo --two-targets
 ```
 
-102 offline unittest checks passed for the current source, including a full-size
+The combined suite contains 105 offline unittest checks, including a full-size
 4096-byte PCM frame through actual local HTTP routes and synthesized playback.
-These checks use fake speech/models and do not spend provider allowance.
+These checks use fake speech/models and do not spend provider allowance. Host C
+and UI snapshot cases require gcc and an LVGL checkout; CI runs those with the
+required tools.
 
 The mock server binds loopback only. Its published fixture token is not a real
 credential and must never be exposed. Live Desktop transport additionally requires

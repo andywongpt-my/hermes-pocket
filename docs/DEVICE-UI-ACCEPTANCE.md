@@ -5,6 +5,11 @@ passed. Boot reached app_main and detected CW2017, with no observed panic or
 driver errors. Settings partitions were untouched. The physical acceptance
 checks below and end-to-end bridge/voice validation remain pending.
 
+That flash/boot evidence belongs to the earlier static-cat baseline. The animated
+UI in PR #2 has passing CI builds and host snapshots, but has not been flashed.
+The checks below describe acceptance still to be performed after an authorized
+future deployment.
+
 ## Display
 
 - Home, Chat and Screen show the animated tabby cat. Compare its moods with the

@@ -5,6 +5,10 @@ Toolchain: official ESP-IDF 5.5.3 with pinned managed components.
 The cat/battery/screen-standby increment has been built and app-only flashed.
 Validation status for this increment is listed below.
 
+The animated UI added in PR #2 is a later source update. Its CI build and host
+snapshots pass; it has not been flashed or physically accepted. The earlier
+flash/boot evidence below applies to the static-cat baseline.
+
 UP/DOWN changes Home / Chat / Usage / Screen pages. On Home, click OK to select
 Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
 speak, then release to send. Press OK while waiting or playing to stop waiting or
