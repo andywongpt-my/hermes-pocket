@@ -5,15 +5,17 @@ Toolchain: official ESP-IDF 5.5.3 with pinned managed components.
 The animated cat/battery/screen-standby firmware has been built and app-only flashed.
 Validation status for this increment is listed below.
 
-The current animated UI and memory fix passed flash/readback and boot checks.
+The current controls, debug and voice transport candidate passed app-only
+flash/readback and idle boot checks.
 Authenticated Linux status returned HTTP 200 with the backend available over
 verified HTTPS. Physical display/button acceptance, live text tasks and end-to-end
-voice remain unverified; the checked bridge reports STT unavailable.
+voice remain unverified. The checked Linux bridge advertises configured STT/TTS;
+capabilities alone do not establish microphone or playback success.
 
-UP/DOWN changes Home / Chat / Usage / Screen pages. On Home, click OK to select
-Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
+UP/DOWN changes Home / Chat / Usage / Diagnostics / Tasks / Tools / Audio /
+Alerts / Screen pages. On Home, click OK to select and save Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
 speak, then release to send. Press OK while waiting or playing to stop waiting or
-playback. This does not cancel a task already running in Hermes. Approval-required
+playback. UP during recording discards capture. This does not cancel a task already running in Hermes. Approval-required
 or uncertain outcomes direct the owner to the trusted Hermes interface.
 
 The screen lives in `main/pocket_ui.c`, pure LVGL with no ESP-IDF calls. An
@@ -38,10 +40,11 @@ entire wake hold/release and delayed click are ignored, so waking cannot select
 an agent, enter setup, record audio, change page or immediately turn off again.
 Release the wake button, then use a fresh press to interact normally.
 
-The current firmware passed ESP-IDF compilation, app-only flashing
-at 0x10000 and independent flash verification. Boot reached app_main, detected
-CW2017 and showed no observed panic or driver errors. Settings partitions were
-not written. This does not establish visual, battery-accuracy, button or voice
+The combined controls/debug firmware passed ESP-IDF compilation, app-only flashing
+at 0x10000 and independent flash verification. Boot reached app_main, reported
+Linux status HTTP 200 and successfully decoded all unconfigured Usage providers.
+No fatal errors or Wi-Fi drops were observed in the bounded check. Settings
+partitions were not written. This does not establish visual, battery-accuracy, button or voice
 acceptance. See `../docs/DEVICE-UI-ACCEPTANCE.md` for that checklist.
 
 First boot without saved Wi-Fi starts phone setup. Join the displayed temporary
@@ -57,18 +60,42 @@ pairing. Earlier Wi-Fi/address settings migrate without erasing NVS.
 The client verifies TLS certificates/hostnames and waits for network time. It does
 not retry uncertain audio submissions. PCM recording is bounded to 30 seconds;
 slow network capture fails visibly instead of silently discarding speech frames.
+The transport candidate enables TCP_NODELAY and temporarily requests an awake
+Wi-Fi radio while capturing/uploading, then restores its exact previous power
+mode before finish/provider waits and on failures. Failed restoration retains
+the original mode for worker recovery and blocks finish. The four-frame queue
+and 22,000-byte audio budget are unchanged. Successful reused chunks no longer
+walk the heap or print per-chunk diagnostics. Boundary/failure measurements
+remain; a deferred numeric summary reports common-origin HTTP phases and
+separate heap/perform/callback/wrapper JSON/logging costs. Presence flags mark
+skipped measurements. SDK perform includes transport and scheduling/event waits;
+these logs do not establish a unique physical root cause. The preceding owner
+recording still overflowed its queue with a 246 ms maximum upload. Physical
+improvement and a complete voice round trip require an owner-triggered recording.
 Audio queues, buffers and the recorder task are allocated only after STT and
 held-button checks, then released after capture/use. Status polling keeps its
 connection/response buffers without reserving inactive audio memory needed by TLS.
 Transcription and reply synthesis happen through the configured host bridge.
 Both targets may use the Linux voice service, but chat/task state stays separate.
 
-Known limits: hardware acceptance is the owner's responsibility; source-level
-integration is not proof of live compatibility. Verify STT configuration on the
-chosen host. Usage sources are not connected. The bundled font covers
-common CJK glyphs only. This candidate does not provide a complete on-device task
-browser, approval UI or full transcript paging. Replies are bounded on screen;
-complete history remains on the bridge/Hermes host.
+Tasks shows at most twelve device-scoped Pocket tasks and a selected 768-byte
+UTF-8 result preview. Hold OK to refresh; short OK selects the next task. Real
+states include approval and unknown outcomes; there is no invented progress
+percentage. Tools queues only existing read-only Status, Usage and Task GETs.
+Todo remains unavailable without a supported source.
+
+On Audio, OK enters/exits volume editing; UP/DOWN changes 0â€“100 while editing.
+On Alerts, OK cycles 80%, 90% and off for percentages; hold OK toggles the
+independent, labeled $1 low-credit threshold. Alerts require fresh available Usage samples and never invent account
+data. Reset notices require a fresh next-period sample. Target selection survives
+reboot through a separate validated NVS key; volume, alert choices and reminder
+deduplication last for the current device session.
+
+Known limits: source-level integration is not proof of live compatibility.
+Usage sources are not connected. The bundled font covers common CJK glyphs only.
+Approval and full results/transcript history remain on the bridge/Hermes host.
+Physical display/buttons, cross-reboot target acceptance and end-to-end voice
+remain separate acceptance checks. See ../docs/VERIFICATION.md for build/flash evidence.
 
 Build in an activated official ESP-IDF 5.5.3 environment:
 
@@ -89,3 +116,7 @@ Use candidate split images only; do not erase flash or write across the NVS gap.
 BSP: FoloToy/ai-passport commit a9320ab6eaa21b90759a4a22d1039092385f24dd,
 MIT notice retained. Dependencies and font notices are in ../docs/licenses and
 ../docs/THIRD-PARTY-NOTICES.md.
+
+The combined app retains target-scoped TLS/verify/heap, voice capture reason,
+request stage/timing/queue and numeric Usage parsing diagnostics. Logs omit
+credentials, audio, transcription/reply bodies and real account values.

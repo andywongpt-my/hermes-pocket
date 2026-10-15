@@ -3,10 +3,21 @@
 #pragma once
 #include <stdbool.h>
 #include "pocket_model.h"
+#include "pocket_usage.h"
+#include "pocket_diagnostics.h"
 
 typedef struct {
  pocket_page page;
- unsigned target;
+ unsigned target,usage_window;
+ const pocket_usage_snapshot *usage;
+ int64_t now;
+ int64_t uptime_ms;
+ const pocket_diagnostics *diagnostics;
+ bool target_save_failed;
+ pocket_tool tool;
+ unsigned volume,alert_threshold,task_count,task_selected;
+ bool audio_edit,usd_floor_enabled,alert_pending,task_approval,task_unknown,task_has_result,task_truncated;
+ const char *task_phase,*task_status,*task_result,*alert_note;
  int battery_percent; /* Negative when the gauge has no trustworthy reading. */
  bool setup_active, wifi_connected, online, speech_ready;
  bool voice_here, recording, playing, busy; /* voice_here: voice state belongs to target. */

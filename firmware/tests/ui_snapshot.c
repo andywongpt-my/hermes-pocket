@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #define W 240
 #define H 320
@@ -34,7 +35,25 @@ static int save(const char *directory,const char *name){
  printf("%s\n",path);return fclose(file)!=0;
 }
 static int shot(const char *directory,const char *name,pocket_ui_view view,uint32_t ms){
- pocket_ui_render(&view);advance(ms);return save(directory,name);
+ pocket_ui_render(&view);advance(ms);
+ /* Expanded Usage rows must fit inside the card. Returning Home restores the
+  * compact dimensions, with no collision with the badge or bottom controls. */
+ if(!view.setup_active&&(view.page==POCKET_USAGE||view.page==POCKET_STATUS)){
+  bool found=false;lv_obj_t *screen=lv_screen_active();
+  for(uint32_t i=0;i<lv_obj_get_child_count(screen);i++){
+   lv_obj_t *child=lv_obj_get_child(screen,(int32_t)i);
+   if(lv_obj_has_flag(child,LV_OBJ_FLAG_HIDDEN)||lv_obj_get_x(child)!=20||lv_obj_get_width(child)!=200)continue;
+   const bool usage=view.page==POCKET_USAGE;
+   assert(lv_obj_get_y(child)==(usage?94:182));assert(lv_obj_get_height(child)==(usage?168:76));found=true;
+  }
+  assert(found);
+ }
+ return save(directory,name);
+}
+static pocket_usage_metric metric(double value,pocket_usage_unit unit,pocket_usage_category category,unsigned minutes,int64_t now){
+ return (pocket_usage_metric){.has_value=true,.value=value,.unit=unit,.category=category,.window_minutes=minutes,
+  .has_fetched_at=true,.fetched_at=now-120,.has_resets_at=true,.resets_at=now+7200,
+  .has_expires_at=true,.expires_at=now+60,.availability=POCKET_USAGE_AVAILABLE};
 }
 int main(int argc,char **argv){
  const char *out=argc>1?argv[1]:".";
@@ -48,6 +67,7 @@ int main(int argc,char **argv){
   .ssid="",.password="",.message="",.text="",.reply=""};
  pocket_ui_view v;int failed=0;
  v=base;failed|=shot(out,"home",v,240);
+ v.alert_pending=true;failed|=shot(out,"home-alert",v,240);
  v=base;v.online=false;v.speech_ready=false;v.battery_percent=12;failed|=shot(out,"home-offline",v,600);
  v=base;v.page=POCKET_CHAT;failed|=shot(out,"chat-ready",v,240);
  v=base;v.page=POCKET_CHAT;v.voice_here=v.busy=v.recording=true;v.message="Listening... release OK to send";failed|=shot(out,"chat-listening",v,240);
@@ -57,6 +77,63 @@ int main(int argc,char **argv){
  v=base;v.page=POCKET_CHAT;v.voice_here=true;v.message="Wi-Fi offline; hold OK on Status";failed|=shot(out,"chat-error",v,240);
  v=base;v.page=POCKET_CHAT;v.online=false;failed|=shot(out,"chat-offline",v,600);
  v=base;v.page=POCKET_USAGE;v.battery_percent=-1;failed|=shot(out,"usage",v,240);
+ /* Fully synthetic account samples: no private account or provider reads. */
+ const int64_t now=1800000000;pocket_usage_snapshot usage={0};
+ for(unsigned i=0;i<POCKET_USAGE_PROVIDER_COUNT;i++)usage.providers[i].availability=POCKET_USAGE_AVAILABLE;
+ usage.providers[0].metric_count=2;
+ usage.providers[0].metrics[0]=metric(26,POCKET_USAGE_PERCENT_USED,POCKET_USAGE_SUBSCRIPTION,300,now);
+ usage.providers[0].metrics[1]=metric(72.5,POCKET_USAGE_PERCENT_REMAINING,POCKET_USAGE_SUBSCRIPTION,10080,now);
+ usage.providers[1].metric_count=1;
+ usage.providers[1].metrics[0]=metric(0,POCKET_USAGE_PERCENT_REMAINING,POCKET_USAGE_SUBSCRIPTION,10080,now);
+ usage.providers[2].metric_count=2;
+ usage.providers[2].metrics[0]=metric(12.34,POCKET_USAGE_USD_CREDIT,POCKET_USAGE_INCLUDED_CREDIT,43200,now);
+ usage.providers[2].metrics[1]=metric(45.67,POCKET_USAGE_USD_CREDIT,POCKET_USAGE_PURCHASED_CREDIT,0,now);
+ v=base;v.page=POCKET_USAGE;v.usage=&usage;v.now=now;failed|=shot(out,"usage-available",v,240);
+ v.alert_pending=true;usage.providers[0].metrics[0].value=85;failed|=shot(out,"usage-alert",v,240);
+ v.alert_pending=false;usage.providers[0].metrics[0].value=26;
+ v.usage_window=1;failed|=shot(out,"usage-next-window",v,240);
+ v.usage_window=0;usage.providers[0].metrics[0].value=0;usage.providers[1].metrics[0].has_value=false;
+ usage.providers[2].metric_count=0;usage.providers[2].availability=POCKET_USAGE_NOT_CONFIGURED;
+ failed|=shot(out,"usage-null-zero",v,240);
+ usage.providers[0].metrics[0].value=83;usage.providers[0].metrics[0].expires_at=now;
+ usage.providers[1].availability=POCKET_USAGE_PARTIAL;usage.providers[1].metrics[0].has_value=true;usage.providers[1].metrics[0].value=1.25;
+ usage.providers[2].availability=POCKET_USAGE_FAILED;usage.providers[2].metric_count=1;
+ usage.providers[2].metrics[0]=metric(3.4,POCKET_USAGE_USD_CREDIT,POCKET_USAGE_PURCHASED_CREDIT,0,now);
+ failed|=shot(out,"usage-stale-partial-failed",v,240);
+ v=base;failed|=shot(out,"home-after-usage",v,240);
+ pocket_diagnostics diagnostics={0};
+ v=base;v.page=POCKET_DIAGNOSTICS;v.diagnostics=&diagnostics;v.uptime_ms=12000;
+ failed|=shot(out,"diag-unchecked",v,240);
+ diagnostics=(pocket_diagnostics){.checked=true,.wifi=true,.utc_ready=true,.configured=true,.attempted=true,.heap_measured=true,
+  .response_valid=true,.backend_available=true,.stt=true,.tts=true,.stt_known=true,.tts_known=true,.custom_ca=true,
+  .http_status=200,.free_heap=53052,.largest_block=40960,.checked_ms=1000};
+ failed|=shot(out,"diag-ready",v,240);
+ diagnostics.transport_error=-1;diagnostics.http_status=0;diagnostics.tls_error=0x801a;diagnostics.tls_code=0x2700;diagnostics.verify_flags=8;
+ failed|=shot(out,"diag-tls",v,240);
+ diagnostics.transport_error=0;diagnostics.http_status=401;diagnostics.tls_error=diagnostics.tls_code=diagnostics.verify_flags=0;
+ failed|=shot(out,"diag-login",v,240);
+ v.busy=true;v.uptime_ms=61000;failed|=shot(out,"diag-paused",v,240);
+ v=base;v.target_save_failed=true;failed|=shot(out,"home-save-failed",v,240);
+ v=base;v.page=POCKET_TASKS;v.task_status="Not fetched";failed|=shot(out,"tasks-unfetched",v,240);
+ v.task_count=2;v.task_selected=0;v.task_phase="RUNNING";v.task_status="Fetched";failed|=shot(out,"tasks-running",v,240);
+ v.task_phase="NEEDS APPROVAL";v.task_approval=true;failed|=shot(out,"tasks-approval",v,240);
+ v.task_phase="UNKNOWN";v.task_approval=false;v.task_unknown=true;failed|=shot(out,"tasks-unknown",v,240);
+ v.task_unknown=false;v.task_phase="COMPLETED";v.task_has_result=true;v.task_result="Synthetic result: \xe4\xbd\xa0\xe5\xa5\xbd. The requested task completed.";
+ failed|=shot(out,"tasks-result-utf8",v,240);
+ char long_result[769];for(unsigned i=0;i<768;i+=3)memcpy(long_result+i,"\xe4\xbd\xa0",3);long_result[768]=0;
+ v.task_result=long_result;v.task_truncated=true;failed|=shot(out,"tasks-truncated",v,240);
+ v.task_status="Offline / cached";failed|=shot(out,"tasks-offline",v,240);
+ v=base;v.page=POCKET_TOOLS;v.tool=POCKET_TOOL_STATUS;failed|=shot(out,"tools-status",v,240);
+ v.tool=POCKET_TOOL_USAGE;failed|=shot(out,"tools-usage",v,240);
+ v.tool=POCKET_TOOL_TASKS;failed|=shot(out,"tools-tasks",v,240);
+ v.tool=POCKET_TOOL_TODO_UNAVAILABLE;failed|=shot(out,"tools-todo",v,240);
+ v=base;v.page=POCKET_AUDIO;v.volume=60;failed|=shot(out,"audio",v,240);
+ v.audio_edit=true;failed|=shot(out,"audio-edit",v,240);
+ v.volume=0;failed|=shot(out,"audio-muted",v,240);
+ v=base;v.page=POCKET_ALERTS;v.alert_threshold=80;v.alert_note="No configured Usage feeds.";failed|=shot(out,"alerts-default",v,240);
+ v.usd_floor_enabled=true;failed|=shot(out,"alerts-usd",v,240);
+ v.alert_threshold=0;v.usd_floor_enabled=false;failed|=shot(out,"alerts-off",v,240);
+ v.alert_threshold=90;v.alert_note="Last: Codex 90.0% used\nLimit 90.0% used";failed|=shot(out,"alerts-note",v,240);
  v=base;v.page=POCKET_SCREEN_OFF;failed|=shot(out,"screen",v,600);
  v=base;v.setup_active=true;v.ssid="HermesPocket-4F2A";v.password="cat-nap-4821";failed|=shot(out,"setup",v,240);
  return failed;

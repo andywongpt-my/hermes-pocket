@@ -13,7 +13,7 @@ Authenticated local HTTP endpoints:
 - `POST /tasks/{request_id}/abandon`: body `{}`; explicitly close a task whose state
   is still `unknown` after a refresh, recording it as `failed`. It neither stops nor
   resubmits upstream work, which may still have run. Other states return 409.
-- `GET /usage`: three unavailable provider entries with null values
+- `GET /usage`: three provider reports; defaults to `not_configured` with null values
 
 Request IDs and authenticated device IDs are 1–64 ASCII letters/digits/underscore/hyphen.
 Request frames are limited to 8192 bytes; text to 4096 UTF-8 bytes. Duplicate JSON
@@ -78,10 +78,103 @@ up to 4096 bytes, maximum 30 seconds, discard on malformed/disconnected input,
 and injected STT/TTS interfaces. This is a tested library, not yet an HTTP or
 firmware audio transport. Provider choice and live audio configuration are pending.
 
-pocket.usage parses explicitly supplied Codex app-server, Claude Code statusline,
-and Ollama balance snapshots. Its target-scoped cache marks expired/old values
-stale and never treats missing information as zero. These parsers do not access
-accounts; the current HTTP usage route still returns not_configured.
+## Usage snapshots
+
+`pocket.usage` parses explicitly supplied Codex app-server, Claude Code statusline,
+and Ollama balance snapshots. Inject a `UsageCache` with
+`make_server(..., usage_cache=cache)` to expose those observations. There are no
+account collectors, ingest routes, background refreshes, or provider requests.
+An uninjected cache remains empty. Authentication and target routing apply as
+for other operations; use `GET /targets/windows/usage` or
+`GET /targets/linux/usage`. The unqualified `/usage` path remains supported only
+in single-target legacy mode.
+
+The JSON root is an array of exactly three reports, ordered `codex`, `claude`,
+`ollama_cloud`. Each report contains `provider`, `availability`, `value: null`,
+`fetched_at` (Unix seconds or null), `source` (a display label or null), and a
+`metrics` array. Provider-level `value` is always null because different units
+and windows have no meaningful aggregate. An empty cache returns
+`not_configured`, null timestamps/sources, and empty metrics for every provider.
+
+Report availability is explicit:
+
+- `not_configured`: no supplied source or cache entry for this target/provider.
+- `unavailable`: configured without observations, an explicitly empty snapshot,
+  or only unknown measurements.
+- `available`: every supplied metric is known and fresh, with no omitted metrics.
+- `partial`: a mixture of known, missing, or stale metrics, or fresh metrics
+  omitted by the four-metric wire limit.
+- `stale`: all supplied metrics have expired or lack a usable observation time.
+- `failed`: the latest refresh was explicitly marked failed. Previous successful
+  metrics remain visible with `stale` availability; no exception text is exposed.
+
+Each metric preserves `category` (`subscription`, `included_credit`, or
+`purchased_credit`), `window` (1–48 printable ASCII characters), nullable `value`,
+`unit` (`percent_used`, `percent_remaining`, or `USD_credit`), nullable
+`fetched_at` and `resets_at`, `availability` (`available`, `unavailable`, or
+`stale`), nullable `source`, and nullable `expires_at`. The parser's `provider`
+field is retained. `window_minutes` is optional and nullable. Percentages are
+bounded to 0–100; unknown measurements stay null and a real zero stays zero.
+Included and purchased credit balances remain separate. All numeric fields are
+finite and nonnegative; sources are sanitized to at most 64 ASCII characters.
+
+`expires_at` is the earlier of observation time plus cache TTL (300 seconds by
+default) and any provider reset time. At that boundary a known measurement is
+stale, so a client can age cached data without another request. Missing or future
+observation times cannot establish freshness. Report `fetched_at` is the oldest
+metric observation time, or null if any metric lacks one; failures never advance
+it. An explicitly empty snapshot may carry its own observation time.
+
+`UsageCache.put(target, provider, rows, *, fetched_at=None, source=None)` validates
+the complete supplied snapshot before replacing it and clears a prior failure.
+`configure(target, provider, *, source=None)` starts a configured, empty entry;
+`unavailable(target, provider, *, fetched_at=None, source=None)` clears old
+observations; `failed(target, provider, *, source=None)` retains the last
+successful observations. `report(target, provider, now)` returns an isolated copy
+of the bounded wire report; `get(target, provider, now)` returns its metrics.
+All operations validate the target/provider scope and share a lock. At most 64
+metrics are accepted per snapshot; at most four are returned, with
+`omitted_metrics` indicating the remainder. All-expired observations still report
+`stale`, and an explicit failed refresh takes precedence over other states.
+
+For example, a supplied Codex observation may produce this single report inside
+the three-provider array:
+
+```json
+{
+  "provider": "codex",
+  "availability": "available",
+  "value": null,
+  "fetched_at": 1000,
+  "source": "account/rateLimits",
+  "metrics": [{
+    "provider": "codex",
+    "category": "subscription",
+    "window": "codex:primary",
+    "value": 0,
+    "unit": "percent_used",
+    "fetched_at": 1000,
+    "resets_at": 2000,
+    "window_minutes": 300,
+    "availability": "available",
+    "source": "account/rateLimits",
+    "expires_at": 1300
+  }]
+}
+```
+
+The device integration polls these read-only reports through the existing voice
+network worker after a successful idle status response. It reuses that worker's
+verified HTTPS client and 8 KiB response buffer, releases status JSON before
+parsing Usage, and polls each target at most once per 30 seconds. A queued voice
+request takes priority; capture, transcription/task waiting and playback do not
+poll Usage. No additional network task or concurrent TLS client is created.
+The idle connection closes after status/Usage processing, before the next poll
+wait, so it cannot outlive the bridge's keep-alive budget. Disconnected targets
+show unavailable data; failed Usage refreshes retain cached observations with an
+explicit failed/stale label. OK cycles the supplied windows on the existing
+Codex, Claude and Ollama rows. No account collector is enabled by this firmware
+or by the default bridge configuration.
 
 ## Linux speech relay source adapter
 

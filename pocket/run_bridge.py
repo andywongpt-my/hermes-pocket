@@ -14,6 +14,7 @@ from .hermes import HermesAdapter
 from .desktop import DesktopAdapter
 from .websocket_rpc import DesktopRPC
 from .linux_voice import DashboardTransport, LinuxSpeechAdapter
+from .hermes_speech import HermesSpeechTransport
 from .service import Service
 from .store import Store
 from .server import make_server
@@ -25,6 +26,20 @@ def secret(variable):
     if not value or len(value)>8192 or any(ord(c)<33 or ord(c)>126 for c in value):
         raise ValueError('missing or invalid owner credential')
     return value
+
+def speech_adapter(voice,target):
+    if not isinstance(voice,dict) or type(voice.get('stt_enabled')) is not bool:
+        raise ValueError('explicit speech configuration required')
+    if voice.get('kind')=='hermes-command':
+        required={'kind','python','hermes_root','hermes_home','pins_file','stt_enabled'}
+        if set(voice)!=required or target!='linux':
+            raise ValueError('approved Linux Hermes command speech configuration required')
+        transport=HermesSpeechTransport(voice['python'],voice['hermes_root'],voice['hermes_home'],voice['pins_file'])
+        transport.check() # Metadata only: no speech provider or model request.
+        return LinuxSpeechAdapter(transport,stt_enabled=voice['stt_enabled'])
+    if not {'origin','token_env','stt_enabled'}<=set(voice) or set(voice)-{'origin','token_env','stt_enabled','host_header'}:
+        raise ValueError('invalid speech configuration')
+    return LinuxSpeechAdapter(DashboardTransport(voice['origin'],secret(voice['token_env']),host_header=voice.get('host_header')),stt_enabled=voice['stt_enabled'])
 
 def build(config):
     required={'targets','devices','port'}
@@ -69,9 +84,7 @@ def build(config):
             services[target]=Service(store,adapter)
             voice=item.get('speech')
             if voice is not None:
-                if not isinstance(voice,dict) or not {'origin','token_env','stt_enabled'}<=set(voice) or set(voice)-{'origin','token_env','stt_enabled','host_header'} or type(voice['stt_enabled']) is not bool:
-                    raise ValueError('invalid speech configuration')
-                speech[target]=LinuxSpeechAdapter(DashboardTransport(voice['origin'],secret(voice['token_env']),host_header=voice.get('host_header')),stt_enabled=voice['stt_enabled'])
+                speech[target]=speech_adapter(voice,target)
         return make_server(services,tokens,host=host,port=port,speech=speech,tls=tls),resources
     except BaseException:
         for resource in reversed(resources):resource.close()

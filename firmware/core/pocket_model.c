@@ -1,6 +1,7 @@
 #include "pocket_model.h"
+#include "pocket_usage.h"
 #include <string.h>
-void pocket_init(pocket_model *m) { memset(m,0,sizeof(*m)); }
+void pocket_init(pocket_model *m) { memset(m,0,sizeof(*m));m->volume=60;m->alert_threshold=80; }
 void pocket_connection(pocket_model *m,unsigned target,bool online) {
  if(target>=2)return;
  m->connected[target]=online;
@@ -10,11 +11,24 @@ bool pocket_select(pocket_model *m,unsigned target) {
  if(target>=2 || m->recording)return false;
  m->target=target; m->playing=false; return true;
 }
+bool pocket_select_from_home(pocket_model *m,unsigned target,bool setup_active,bool voice_busy){
+ return m->page==POCKET_STATUS && !setup_active && !voice_busy && pocket_select(m,target);
+}
 pocket_action pocket_press(pocket_model *m,pocket_button button) {
  if(button==POCKET_OK && m->playing){m->playing=false;return POCKET_STOP_PLAYBACK;}
  if(m->recording)return POCKET_NONE;
+ if(m->page==POCKET_AUDIO && m->audio_edit && (button==POCKET_UP || button==POCKET_DOWN)){
+  if(button==POCKET_UP)m->volume=m->volume>=95?100:m->volume+5;
+  else m->volume=m->volume<=5?0:m->volume-5;
+  return POCKET_NONE;
+ }
  if(button==POCKET_UP)m->page=(pocket_page)((m->page+POCKET_PAGE_COUNT-1)%POCKET_PAGE_COUNT);
  if(button==POCKET_DOWN)m->page=(pocket_page)((m->page+1)%POCKET_PAGE_COUNT);
+ /* 12 is the common cycle for all supported counts (one through four). */
+ if(button==POCKET_OK && m->page==POCKET_USAGE)m->usage_window=(m->usage_window+1)%12;
+ if(button==POCKET_OK && m->page==POCKET_TOOLS)m->tool=(pocket_tool)((m->tool+1)%POCKET_TOOL_COUNT);
+ if(button==POCKET_OK && m->page==POCKET_AUDIO)m->audio_edit=!m->audio_edit;
+ if(button==POCKET_OK && m->page==POCKET_ALERTS)m->alert_threshold=m->alert_threshold==80?90:m->alert_threshold==90?0:80;
  if(button==POCKET_OK && m->page==POCKET_CHAT && m->connected[m->target] && !m->submitting) {
   m->recording=true;m->recording_target=m->target;return POCKET_START_RECORDING;
  }
