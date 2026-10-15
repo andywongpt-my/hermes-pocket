@@ -1,4 +1,6 @@
 """Exercise actual voice-worker allocation and cleanup without audio/network I/O."""
+import base64
+import json
 import os
 import pathlib
 import shutil
@@ -85,17 +87,24 @@ static void test_free(void *);
 #undef free
 static jmp_buf stopped;
 static int mode, command_reads, audio_attempts, status_calls, posts, queue_live, recorder_tasks, record_active, packets, task_deletes;
+static int retained_capture, playback_calls, finish_calls, abort_calls, capture_reads;
 static int command_handle, audio_handle;
-static audio_frame packet;
+static unsigned char packet_data[65536];
+static unsigned queue_count, queue_item_size, queue_head, queue_tail;
+static size_t audio_bytes, peak_audio_bytes, queue_bytes, record_stack, uploaded_bytes, playback_bytes;
 static void *allocations[16];
+static size_t allocation_sizes[16];
+static bool allocation_audio[16];
 static char status_log[128];
+static char endpoint[193];
+static void track_peak(void) { size_t bytes=audio_bytes+queue_bytes+record_stack;if(bytes>peak_audio_bytes)peak_audio_bytes=bytes; }
 static void *test_malloc(size_t size) {
  bool audio=size!=sizeof(pocket_link_config) && size!=8192;
- if(audio){audio_attempts++;if(mode<3 || (mode==3 && size==sizeof(audio_frame)) || (mode==6 && record_active))return NULL;}
- void *p=malloc(size);for(unsigned i=0;i<16;i++)if(!allocations[i]){allocations[i]=p;return p;}
+ if(audio){audio_attempts++;if(mode<3 || (mode==3 && audio_attempts==1) || (mode==6 && record_active))return NULL;}
+ void *p=malloc(size);assert(p);for(unsigned i=0;i<16;i++)if(!allocations[i]){allocations[i]=p;allocation_sizes[i]=size;allocation_audio[i]=audio;if(audio)audio_bytes+=size;track_peak();return p;}
  abort();
 }
-static void test_free(void *p) { if(!p)return;for(unsigned i=0;i<16;i++)if(allocations[i]==p){allocations[i]=NULL;free(p);return;}abort(); }
+static void test_free(void *p) { if(!p)return;for(unsigned i=0;i<16;i++)if(allocations[i]==p){if(allocation_audio[i])audio_bytes-=allocation_sizes[i];allocations[i]=NULL;free(p);return;}abort(); }
 static unsigned live_allocations(void) { unsigned n=0;for(unsigned i=0;i<16;i++)if(allocations[i])n++;return n; }
 time_t test_time(time_t *out) { if(out)*out=1735689600;return 1735689600; }
 void test_log(const char *tag,const char *fmt,...) { if(strcmp(tag,"pocket_status"))return;va_list args;va_start(args,fmt);vsnprintf(status_log,sizeof(status_log),fmt,args);va_end(args); }
@@ -106,47 +115,69 @@ void esp_sntp_setservername(int unused,const char *name) { (void)unused;(void)na
 void esp_sntp_init(void) { }
 void pocket_setup_read(pocket_setup_state *out) { memset(out,0,sizeof(*out));out->wifi_connected=true; }
 bool pocket_setup_link(unsigned target,pocket_link_config *out) { (void)target;memset(out,0,sizeof(*out));memcpy(out->origin,"https://fixture.invalid",sizeof("https://fixture.invalid"));return true; }
-QueueHandle_t xQueueCreate(unsigned count,unsigned size) { if(size==sizeof(audio_frame)){assert(count==6);queue_live++;return &audio_handle;}return &command_handle; }
-void vQueueDelete(QueueHandle_t queue) { assert(queue==&audio_handle && !state.recording);queue_live--; }
-void xQueueReset(QueueHandle_t queue) { assert(queue==&audio_handle);packets=0; }
+QueueHandle_t xQueueCreate(unsigned count,unsigned size) { if(size!=sizeof(unsigned)){assert(count*size<=sizeof(packet_data));queue_count=count;queue_item_size=size;queue_bytes=count*size;queue_live++;track_peak();return &audio_handle;}return &command_handle; }
+void vQueueDelete(QueueHandle_t queue) { assert(queue==&audio_handle && !state.recording);queue_live--;queue_bytes=0; }
+void xQueueReset(QueueHandle_t queue) { assert(queue==&audio_handle);packets=0;queue_head=queue_tail=0; }
 unsigned uxQueueMessagesWaiting(QueueHandle_t queue) { assert(queue==&audio_handle);return (unsigned)packets; }
-BaseType_t xQueueSend(QueueHandle_t queue,const void *value,TickType_t ticks) { (void)ticks;if(queue==&audio_handle){packet=*(const audio_frame *)value;packets++;}return pdTRUE; }
+BaseType_t xQueueSend(QueueHandle_t queue,const void *value,TickType_t ticks) { (void)ticks;if(queue==&audio_handle){if((unsigned)packets==queue_count)return pdFALSE;memcpy(packet_data+queue_tail*queue_item_size,value,queue_item_size);queue_tail=(queue_tail+1)%queue_count;packets++;}return pdTRUE; }
 BaseType_t xQueueReceive(QueueHandle_t queue,void *out,TickType_t ticks) {
  (void)ticks;if(queue==commands){if(command_reads++)longjmp(stopped,1);*(unsigned *)out=1;held=mode!=2;state.busy=mode!=0;return mode?pdTRUE:pdFALSE;}
- assert(queue==&audio_handle);if(mode==7)cancelled=true;if(packets){*(audio_frame *)out=packet;packets--;return pdTRUE;}return pdFALSE;
+ assert(queue==&audio_handle);if(mode==7)cancelled=true;if(packets){memcpy(out,packet_data+queue_head*queue_item_size,queue_item_size);queue_head=(queue_head+1)%queue_count;packets--;return pdTRUE;}return pdFALSE;
 }
 BaseType_t xTaskCreate(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,TaskHandle_t *handle) {
- (void)stack;(void)priority;(void)handle;if(!strcmp(name,"pocket_record")){recorder_tasks++;if(mode==5)return pdFALSE;if(mode==7)return pdPASS;record_active=1;fn(arg);record_active=0;}return pdPASS;
+ /* Conservatively retain a self-deleted recorder's stack until the test ends;
+    FreeRTOS idle cleanup need not have run before subsequent TLS requests. */
+ (void)priority;(void)handle;if(!strcmp(name,"pocket_record")){recorder_tasks++;if(mode==5)return pdFALSE;if(mode==7)return pdPASS;record_stack=stack;track_peak();record_active=1;fn(arg);record_active=0;}return pdPASS;
 }
 void vTaskDelete(TaskHandle_t unused) { (void)unused;if(record_active){task_deletes++;return;}longjmp(stopped,2); }
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
 unsigned ulTaskNotifyTake(BaseType_t clear,TickType_t ticks) { (void)clear;(void)ticks;return 1; }
 void xTaskNotifyGive(TaskHandle_t task) { (void)task; }
 esp_err_t bsp_audio_init(void) { return ESP_OK; }
-esp_err_t bsp_audio_set_format(unsigned a,unsigned b,unsigned c) { (void)a;(void)b;(void)c;return ESP_OK; }
+esp_err_t bsp_audio_set_format(unsigned a,unsigned b,unsigned c) { assert(a==16000 && b==16 && c==1);return ESP_OK; }
 void bsp_audio_set_volume(unsigned volume) { (void)volume; }
-esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);held=false;return ESP_OK; }
-esp_err_t bsp_audio_write(const void *data,size_t size) { (void)data;(void)size;return ESP_OK; }
-int mbedtls_base64_encode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)cap;(void)in;(void)bytes;memcpy(out,"QQ==",4);*size=4;return 0; }
-int mbedtls_base64_decode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)out;(void)cap;(void)in;(void)bytes;*size=2;return 0; }
+esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);capture_reads++;if(mode!=9)held=false;return ESP_OK; }
+esp_err_t bsp_audio_write(const void *data,size_t size) { (void)data;playback_calls++;playback_bytes=size;return ESP_OK; }
+int mbedtls_base64_encode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;*size=4*((bytes+2)/3);if(cap<=*size)return -1;memset(out,'A',*size);if(bytes%3)out[*size-1]='=';if(bytes%3==1)out[*size-2]='=';out[*size]=0;uploaded_bytes=bytes;return 0; }
+int mbedtls_base64_decode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;(void)bytes;*size=mode==8?4096:2;if(cap<*size)return -1;memset(out,0,*size);return 0; }
 static cJSON root, available={"available",0,0,2}, voice, stt, failed={"failed",0,0,2};
+static cJSON submitted={"submitted",0,0,2}, completed={"completed",0,0,2}, ready={"ready",0,0,2};
+static cJSON task_id={"fixture-task",0,0,2}, text={"synthetic",0,0,2}, chunk_data={"synthetic-pcm",0,0,2}, chunks={NULL,1,1,3};
 cJSON *cJSON_Parse(const char *text) { (void)text;return &root; }
 void cJSON_Delete(cJSON *value) { (void)value; }
-cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state"))return &failed;return NULL; }
+cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if(mode!=8)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks"))return &chunks;if(!strcmp(key,"data"))return &chunk_data;return NULL; }
 int cJSON_IsString(const cJSON *value) { return value && value->type==2; }
 int cJSON_IsTrue(const cJSON *value) { return value && value->type==1; }
 int cJSON_IsNumber(const cJSON *value) { return value && value->type==3; }
 esp_err_t pocket_http_json(const char *origin,const char *path,const char *token,const char *ca,const char *body,char *out,size_t cap,pocket_http_result *result) {
- (void)origin;(void)token;(void)ca;(void)cap;if(strstr(path,"/status"))status_calls++;if(body)posts++;memcpy(out,"{}",3);result->status=200;result->length=2;return ESP_OK;
+ (void)origin;(void)token;(void)ca;assert(cap>=3);snprintf(endpoint,sizeof(endpoint),"%s",path);if(strstr(path,"/status"))status_calls++;if(body)posts++;
+ if(strstr(path,"/finish"))finish_calls++;
+ if(strstr(path,"/abort"))abort_calls++;
+ if(mode==8 && body && strstr(path,"/chunk"))printf("SYNTHETIC_UPLOAD %s\n",body);
+ if(mode==8 && (strstr(path,"/finish") || (!body && !strstr(path,"/status") && !strstr(path,"/speech"))) && (queue_live || audio_bytes))retained_capture++;
+ memcpy(out,"{}",3);result->status=200;result->length=2;return ESP_OK;
 }
 void pocket_http_close(void) { }
 static void reset(int value) {
  for(unsigned i=0;i<16;i++)if(allocations[i]){free(allocations[i]);allocations[i]=NULL;}
  mode=value;command_reads=audio_attempts=status_calls=posts=queue_live=recorder_tasks=record_active=packets=task_deletes=0;
+ retained_capture=playback_calls=finish_calls=abort_calls=capture_reads=0;audio_bytes=peak_audio_bytes=queue_bytes=record_stack=uploaded_bytes=playback_bytes=0;queue_head=queue_tail=0;endpoint[0]=0;
  memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=0;
 }
 #define CHECK(c,m) do { if(!(c)){puts("FAIL: " m);return 1;} } while(0)
-int main(void) {
+int main(int argc,char **argv) {
+ if(argc>1){
+  reset(8);int exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+  CHECK(exit_kind==1 && finish_calls==1 && abort_calls==0,"synthetic voice did not finish capture");
+  printf("METRICS peak_audio_bytes=%zu retained_capture=%d capture_pcm_bytes=%zu playback_pcm_bytes=%zu queued_pcm_bytes=%u deferred_recorder_stack_bytes=%zu\n",peak_audio_bytes,retained_capture,uploaded_bytes,playback_bytes,queue_count*(queue_item_size-(unsigned)sizeof(size_t)),record_stack);
+  if(!strcmp(argv[1],"budget"))CHECK(peak_audio_bytes<=22000,"active audio exceeds the 22000-byte queue/workspace/recorder-stack budget");
+  if(!strcmp(argv[1],"phase"))CHECK(retained_capture==0,"capture-only resources survived into finish/STT/task waiting");
+  CHECK(record_stack==6144,"phase budget did not account for deferred recorder-stack reclamation");
+  CHECK(playback_calls==1 && playback_bytes==4096,"full-size PCM playback changed");
+  CHECK(uploaded_bytes>0 && uploaded_bytes<=2048,"capture chunks exceeded the reduced workspace");
+  CHECK(queue_live==0 && live_allocations()==2 && !state.busy,"voice candidate leaked audio resources");
+  printf("PASS: %s peak_audio_bytes=%zu capture_pcm_bytes=%zu playback_pcm_bytes=%zu queued_pcm_bytes=%u\n",argv[1],peak_audio_bytes,uploaded_bytes,playback_bytes,queue_count*(queue_item_size-(unsigned)sizeof(size_t)));return 0;
+ }
  reset(0);int exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(exit_kind==1 && status_calls==1,"idle status polling must survive unavailable audio memory");
  CHECK(audio_attempts==0 && queue_live==0 && recorder_tasks==0,"idle status polling allocated inactive audio resources");
@@ -171,13 +202,16 @@ int main(void) {
  reset(7);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(exit_kind==1 && state.busy && state.recording,"stalled recorder must remain blocked from reuse");
  CHECK(queue_live==1 && audio_queue!=NULL && live_allocations()==2,"cleanup freed a queue still owned by the recorder");
+ reset(9);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(exit_kind==1 && capture_reads==(int)queue_count+1 && abort_calls==1 && finish_calls==0,"queue overflow was not bounded and discarded");
+ CHECK(queue_live==0 && live_allocations()==2 && !state.busy,"overflow retained capture resources");
  reset(0);puts("PASS: idle status, eligibility, allocation failure and capture cleanup");return 0;
 }
 '''
 
 
 class FirmwareVoiceTests(unittest.TestCase):
-    def test_idle_status_and_audio_resource_lifetime(self):
+    def _exercise(self, cases):
         compiler = shutil.which('gcc') or shutil.which('clang')
         cached = pathlib.Path(os.environ.get('ProgramFiles', r'C:\Program Files')) / 'LLVM/bin/clang.exe'
         if not compiler and cached.is_file():
@@ -196,6 +230,21 @@ class FirmwareVoiceTests(unittest.TestCase):
             binary = temp / ('test-voice.exe' if os.name == 'nt' else 'test-voice')
             compiled = subprocess.run([compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-I'+str(temp), '-I'+str(source), str(harness), '-o', str(binary)], capture_output=True, text=True)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
-            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
-            self.assertIn('PASS:', run.stdout)
+            for case in cases:
+                with self.subTest(case=case or 'lifetime'):
+                    run = subprocess.run([str(binary)] + ([case] if case else []), capture_output=True, text=True, timeout=10)
+                    self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                    self.assertIn('PASS:', run.stdout)
+                    if case:
+                        uploads = [json.loads(line.removeprefix('SYNTHETIC_UPLOAD '))
+                                   for line in run.stdout.splitlines()
+                                   if line.startswith('SYNTHETIC_UPLOAD ')]
+                        self.assertEqual(len(uploads), 1)
+                        self.assertEqual(uploads[0]['sequence'], 0)
+                        self.assertEqual(base64.b64decode(uploads[0]['data'], validate=True), b'\0' * 2048)
+
+    def test_idle_status_and_audio_resource_lifetime(self):
+        self._exercise([''])
+
+    def test_active_voice_memory_and_phase_release(self):
+        self._exercise(['budget', 'phase'])

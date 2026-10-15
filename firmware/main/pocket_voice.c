@@ -18,6 +18,8 @@
 #include <time.h>
 #include <stdatomic.h>
 typedef struct { size_t size; unsigned char pcm[4096]; } audio_frame;
+enum { CAPTURE_PCM_BYTES=2048, CAPTURE_QUEUE_FRAMES=4, CAPTURE_BODY_BYTES=2816 };
+typedef struct { size_t size; unsigned char pcm[CAPTURE_PCM_BYTES]; } capture_frame;
 static portMUX_TYPE mux=portMUX_INITIALIZER_UNLOCKED;
 static pocket_voice_state state;
 static bool held,cancelled,capture_done,capture_failed;
@@ -37,7 +39,7 @@ void pocket_voice_begin(unsigned target){
  if(xQueueSend(commands,&target,0)!=pdTRUE){portENTER_CRITICAL(&mux);state.busy=false;held=false;portEXIT_CRITICAL(&mux);}
 }
 static void record(void *unused){
- (void)unused;audio_frame *frame=malloc(sizeof(*frame));
+ (void)unused;capture_frame *frame=malloc(sizeof(*frame));
  if(!frame){
   portENTER_CRITICAL(&mux);capture_failed=true;capture_done=true;state.recording=false;held=false;portEXIT_CRITICAL(&mux);
   message("Not enough memory for recording");vTaskDelete(NULL);return;
@@ -52,6 +54,14 @@ static void record(void *unused){
  free(frame);
  portENTER_CRITICAL(&mux);capture_done=true;state.recording=false;held=false;portEXIT_CRITICAL(&mux);
  vTaskDelete(NULL);
+}
+static bool release_capture(capture_frame **frame,char **body){
+ portENTER_CRITICAL(&mux);bool recording=state.recording;portEXIT_CRITICAL(&mux);
+ /* A stalled codec still owns its queue; the network scratch is independent. */
+ if(!recording && audio_queue){vQueueDelete(audio_queue);audio_queue=NULL;}
+ if(*frame){memset(*frame,0,sizeof(**frame));free(*frame);*frame=NULL;}
+ if(*body){memset(*body,0,CAPTURE_BODY_BYTES);free(*body);*body=NULL;}
+ return !recording;
 }
 static cJSON *request(pocket_link_config *link,const char *path,const char *body,char *response,size_t size){
  pocket_http_result result;
@@ -129,7 +139,7 @@ static void play(pocket_link_config *link,const char *target,const char *task,ch
 static void network(void *unused){
  (void)unused;
  pocket_link_config *link=malloc(sizeof(*link));char *response=malloc(8192);
- audio_frame *frame=NULL;char *body=NULL,*encoded=NULL;
+ capture_frame *frame=NULL;char *body=NULL;audio_frame *playback=NULL;
  if(!link || !response){audio_unavailable=true;message("Not enough memory for connection");free(link);free(response);vTaskDelete(NULL);return;}
  unsigned target,poll_target=0;
  for(;;){
@@ -161,8 +171,8 @@ static void network(void *unused){
   if(!stt){message("Speech recognition is not enabled");goto finished;}
   if(flags(&pressed) || !pressed){message("Hold OK to speak");goto finished;}
   /* Keep inactive audio out of the heap needed by certificate/signature checks. */
-  audio_queue=xQueueCreate(6,sizeof(audio_frame));frame=malloc(sizeof(*frame));body=malloc(6000);encoded=malloc(5465);
-  if(!audio_queue || !frame || !body || !encoded){message("Not enough memory for voice");goto finished;}
+  audio_queue=xQueueCreate(CAPTURE_QUEUE_FRAMES,sizeof(capture_frame));frame=malloc(sizeof(*frame));body=malloc(CAPTURE_BODY_BYTES);
+  if(!audio_queue || !frame || !body){message("Not enough memory for voice");goto finished;}
   if(bsp_audio_init()!=ESP_OK || bsp_audio_set_format(16000,16,1)!=ESP_OK){message("Audio hardware unavailable");goto finished;}
   bsp_audio_set_volume(60);
   snprintf(path,sizeof(path),"/targets/%s/audio/%s",name,id);
@@ -179,9 +189,10 @@ static void network(void *unused){
   for(;;){
    if(flags(&pressed)){failed=true;break;}
    if(xQueueReceive(audio_queue,frame,pdMS_TO_TICKS(100))==pdTRUE){
-    size_t length=0;
-    if(mbedtls_base64_encode((unsigned char*)encoded,5465,&length,frame->pcm,frame->size)!=0){failed=true;break;}
-    encoded[length]=0;snprintf(body,6000,"{\"sequence\":%u,\"data\":\"%s\"}",sequence,encoded);
+    size_t length=0;int prefix=snprintf(body,CAPTURE_BODY_BYTES,"{\"sequence\":%u,\"data\":\"",sequence);
+    if(prefix<0 || (size_t)prefix>CAPTURE_BODY_BYTES-3 ||
+     mbedtls_base64_encode((unsigned char*)body+prefix,CAPTURE_BODY_BYTES-(size_t)prefix-2,&length,frame->pcm,frame->size)!=0){failed=true;break;}
+    memcpy(body+(size_t)prefix+length,"\"}",3);
     snprintf(path,sizeof(path),"/targets/%s/audio/%s/chunk",name,id);
     cJSON *ack=request(link,path,body,response,8192);if(!ack){failed=true;break;}cJSON_Delete(ack);sequence++;
    }
@@ -191,10 +202,16 @@ static void network(void *unused){
   }
   pocket_voice_release();
   if(failed || !sequence)goto abort_capture;
+  /* The recorder is done and every queued frame was uploaded. Reclaim capture
+     memory before finish/STT/task/speech requests can need another TLS handshake. */
+  if(!release_capture(&frame,&body)){message("Audio stalled; restart device");goto abort_capture;}
   snprintf(path,sizeof(path),"/targets/%s/audio/%s/finish",name,id);
   if(!post_empty(link,path,response))goto finished;
   message("Transcribing...");
-  if(wait_task(link,name,id,response,task) && wait_reply(link,name,task,response))play(link,name,task,response,frame);
+  if(wait_task(link,name,id,response,task) && wait_reply(link,name,task,response)){
+   playback=malloc(sizeof(*playback));
+   if(playback)play(link,name,task,response,playback);else message("Text ready; not enough memory for playback");
+  }
   goto finished;
  abort_capture:
   pocket_voice_release();
@@ -203,12 +220,9 @@ static void network(void *unused){
   pocket_voice_release();
   /* Let the bounded codec read finish before any subsequent capture/playback. */
   for(int i=0;i<20;i++){portENTER_CRITICAL(&mux);bool recording=state.recording;portEXIT_CRITICAL(&mux);if(!recording)break;vTaskDelay(pdMS_TO_TICKS(100));}
-  portENTER_CRITICAL(&mux);state.busy=state.recording;state.playing=false;bool fault=state.recording;portEXIT_CRITICAL(&mux);
-  /* A stalled codec may still use the queue; retain it until restart in that case. */
-  if(!fault && audio_queue){vQueueDelete(audio_queue);audio_queue=NULL;}
-  if(frame){memset(frame,0,sizeof(*frame));free(frame);frame=NULL;}
-  if(body){memset(body,0,6000);free(body);body=NULL;}
-  if(encoded){memset(encoded,0,5465);free(encoded);encoded=NULL;}
+  bool fault=!release_capture(&frame,&body);
+  portENTER_CRITICAL(&mux);state.busy=fault;state.playing=false;portEXIT_CRITICAL(&mux);
+  if(playback){memset(playback,0,sizeof(*playback));free(playback);playback=NULL;}
   memset(link,0,sizeof(*link));
   if(fault)message("Audio stalled; restart device");
   pocket_http_close();
