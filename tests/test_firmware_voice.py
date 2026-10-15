@@ -88,6 +88,9 @@ static void test_free(void *);
 static jmp_buf stopped;
 static int mode, command_reads, audio_attempts, status_calls, posts, queue_live, recorder_tasks, record_active, packets, task_deletes;
 static int retained_capture, playback_calls, finish_calls, abort_calls, capture_reads;
+static int transport_failures,status_successes,http_closes;
+static int64_t elapsed_ms,last_exchange_ms;
+static bool transport_open;
 static int command_handle, audio_handle;
 static unsigned char packet_data[65536];
 static unsigned queue_count, queue_item_size, queue_head, queue_tail;
@@ -121,7 +124,7 @@ void xQueueReset(QueueHandle_t queue) { assert(queue==&audio_handle);packets=0;q
 unsigned uxQueueMessagesWaiting(QueueHandle_t queue) { assert(queue==&audio_handle);return (unsigned)packets; }
 BaseType_t xQueueSend(QueueHandle_t queue,const void *value,TickType_t ticks) { (void)ticks;if(queue==&audio_handle){if((unsigned)packets==queue_count)return pdFALSE;memcpy(packet_data+queue_tail*queue_item_size,value,queue_item_size);queue_tail=(queue_tail+1)%queue_count;packets++;}return pdTRUE; }
 BaseType_t xQueueReceive(QueueHandle_t queue,void *out,TickType_t ticks) {
- (void)ticks;if(queue==commands){if(command_reads++)longjmp(stopped,1);*(unsigned *)out=1;held=mode!=2;state.busy=mode!=0;return mode?pdTRUE:pdFALSE;}
+ if(queue==commands){if(command_reads++>=(mode==10?6:mode==11?4:1))longjmp(stopped,1);elapsed_ms+=ticks;*(unsigned *)out=1;held=mode!=2;bool idle=mode==0 || mode==10 || mode==11;state.busy=!idle;return idle?pdFALSE:pdTRUE;}
  assert(queue==&audio_handle);if(mode==7)cancelled=true;if(packets){memcpy(out,packet_data+queue_head*queue_item_size,queue_item_size);queue_head=(queue_head+1)%queue_count;packets--;return pdTRUE;}return pdFALSE;
 }
 BaseType_t xTaskCreate(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,TaskHandle_t *handle) {
@@ -153,15 +156,22 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  (void)origin;(void)token;(void)ca;assert(cap>=3);snprintf(endpoint,sizeof(endpoint),"%s",path);if(strstr(path,"/status"))status_calls++;if(body)posts++;
  if(strstr(path,"/finish"))finish_calls++;
  if(strstr(path,"/abort"))abort_calls++;
+ /* Model the deployed bridge's three-second idle expiry. Old firmware reuses
+    this dead connection; fresh status connections must never hit that path. */
+ if(mode==11 || (mode==10 && transport_open && elapsed_ms-last_exchange_ms>=3000) || (mode==12 && body)){
+  transport_failures++;transport_open=false;out[0]=0;result->status=-1;result->length=0;return ESP_FAIL;
+ }
+ transport_open=true;last_exchange_ms=elapsed_ms;if(strstr(path,"/status"))status_successes++;
  if(mode==8 && body && strstr(path,"/chunk"))printf("SYNTHETIC_UPLOAD %s\n",body);
  if(mode==8 && (strstr(path,"/finish") || (!body && !strstr(path,"/status") && !strstr(path,"/speech"))) && (queue_live || audio_bytes))retained_capture++;
  memcpy(out,"{}",3);result->status=200;result->length=2;return ESP_OK;
 }
-void pocket_http_close(void) { }
+void pocket_http_close(void) { http_closes++;transport_open=false; }
 static void reset(int value) {
  for(unsigned i=0;i<16;i++)if(allocations[i]){free(allocations[i]);allocations[i]=NULL;}
  mode=value;command_reads=audio_attempts=status_calls=posts=queue_live=recorder_tasks=record_active=packets=task_deletes=0;
  retained_capture=playback_calls=finish_calls=abort_calls=capture_reads=0;audio_bytes=peak_audio_bytes=queue_bytes=record_stack=uploaded_bytes=playback_bytes=0;queue_head=queue_tail=0;endpoint[0]=0;
+ transport_failures=status_successes=http_closes=0;elapsed_ms=last_exchange_ms=0;transport_open=false;
  memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=0;
 }
 #define CHECK(c,m) do { if(!(c)){puts("FAIL: " m);return 1;} } while(0)
@@ -183,6 +193,15 @@ int main(int argc,char **argv) {
  CHECK(audio_attempts==0 && queue_live==0 && recorder_tasks==0,"idle status polling allocated inactive audio resources");
  CHECK(state.online[0] && !state.speech_ready[0],"STT-off bridge status did not remain available");
  CHECK(!strcmp(status_log,"target=0 http=200 backend_available=1 stt=0"),"status readiness evidence must be numeric-only");
+ reset(10);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(status_calls==6 && status_successes==6 && !transport_failures && http_closes==6 && !transport_open,"status reused a connection after the bridge idle expiry");
+ CHECK(state.online[0] && state.online[1] && state.speech_ready[0] && state.speech_ready[1],"fresh successful polls did not keep both target states ready");
+ reset(11);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(status_calls==4 && !status_successes && transport_failures==4 && !state.online[0] && !state.online[1] && !state.speech_ready[0] && !state.speech_ready[1],"persistent failure was hidden instead of staying offline");
+ CHECK(!posts && !audio_attempts && !queue_live,"failed status triggered side effects or audio allocations");
+ reset(12);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(posts==1 && transport_failures==1 && !finish_calls && !abort_calls,"failed audio submission was retried or duplicated");
+ CHECK(!state.busy && !queue_live && live_allocations()==2,"failed POST did not release capture allocations");
  for(int value=1;value<=2;value++){
   reset(value);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
   CHECK(exit_kind==1 && status_calls==1 && posts==0,"STT-off or released button executed audio work");

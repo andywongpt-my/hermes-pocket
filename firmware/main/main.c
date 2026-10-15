@@ -12,6 +12,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include <stdatomic.h>
 
 typedef struct { bsp_btn_t button; bsp_btn_ev_t event; } input;
@@ -46,6 +47,14 @@ static void render(void) {
   .online=voice.online[model.target],.speech_ready=voice.speech_ready[model.target],
   .voice_here=voice.target==model.target,.recording=voice.recording,.playing=voice.playing,.busy=voice.busy,
   .ssid=setup.ssid,.password=setup.password,.message=voice.message,.text=voice.text,.reply=voice.reply};
+ /* Log the exact selected view only when its connection indicators change. */
+ static unsigned previous=~0u;
+ const unsigned connection=(view.target<<3)|((unsigned)view.wifi_connected<<2)|((unsigned)view.online<<1)|(unsigned)view.speech_ready;
+ if(connection!=previous){
+  previous=connection;
+  ESP_LOGI("pocket_view","target=%u wifi=%u online=%u speech_ready=%u",view.target,
+           (unsigned)view.wifi_connected,(unsigned)view.online,(unsigned)view.speech_ready);
+ }
  pocket_ui_render(&view);
 }
 static void redraw(void) {

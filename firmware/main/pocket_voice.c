@@ -155,6 +155,9 @@ static void network(void *unused){
    }
    portENTER_CRITICAL(&mux);bool changed=state.online[poll_target]!=online || state.speech_ready[poll_target]!=ready;state.online[poll_target]=online;state.speech_ready[poll_target]=ready;portEXIT_CRITICAL(&mux);
    if(changed)ESP_LOGI("pocket_status","target=%u http=%d backend_available=%u stt=%u",poll_target,http_status,(unsigned)online,(unsigned)ready);
+   /* Idle polling outlives the bridge's keep-alive budget. Release this
+      connection before waiting; active audio/task requests keep their reuse. */
+   pocket_http_close();
    memset(link,0,sizeof(*link));poll_target=1-poll_target;continue;
   }bool started=false,pressed=false;char id[33],path[193],task[65]={0};
   const char *name=target?"linux":"windows";uint32_t random[4];esp_fill_random(random,sizeof(random));
