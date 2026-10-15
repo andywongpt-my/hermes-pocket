@@ -68,6 +68,7 @@ def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,de
     for device in tokens.values():identifier(device)
     class Handler(BaseHTTPRequestHandler):
         protocol_version="HTTP/1.1"
+        disable_nagle_algorithm=True # Avoid delayed-ACK stalls between headers and body.
         def log_message(self,*args):pass # No paths, headers or content in logs.
         def setup(self):
             super().setup();self.connection.settimeout(3)
