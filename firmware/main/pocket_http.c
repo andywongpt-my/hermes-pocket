@@ -2,8 +2,10 @@
 #include "pocket_http.h"
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
+#include "esp_log.h"
 static esp_http_client_handle_t client;
 static char previous_origin[193],previous_token[129],previous_ca[2049];
 typedef struct { char *out;size_t capacity,length;bool overflow; } response_buffer;
@@ -59,6 +61,15 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  result->status=esp_http_client_get_status_code(client);result->length=buffer.length;
  if(buffer.overflow)error=ESP_ERR_INVALID_SIZE;
  esp_http_client_set_user_data(client,NULL);memset(auth,0,sizeof(auth));
- if(error!=ESP_OK){out[0]=0;result->length=0;pocket_http_close();}
+ if(error!=ESP_OK){
+  int tls_code=0,verify_flags=0;
+  esp_err_t tls_error=esp_http_client_get_and_clear_last_tls_error(client,&tls_code,&verify_flags);
+  unsigned target=!strncmp(path,"/targets/windows/",17)?0u:!strncmp(path,"/targets/linux/",15)?1u:2u;
+  /* Numeric-only diagnostics; never include endpoints, credentials or response data. */
+  ESP_LOGW("pocket_tls","target=%u http=%d tls=0x%x mbedtls=0x%x verify=0x%x ca=%u utc_ready=%u",
+   target,error,(unsigned)tls_error,(unsigned)tls_code,(unsigned)verify_flags,
+   (unsigned)(previous_ca[0]!=0),(unsigned)(time(NULL)>=1704067200));
+  out[0]=0;result->length=0;pocket_http_close();
+ }
  return error;
 }
