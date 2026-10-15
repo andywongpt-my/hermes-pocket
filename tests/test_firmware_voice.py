@@ -94,9 +94,12 @@ static int retained_capture, playback_calls, finish_calls, abort_calls, capture_
 static int transport_failures,status_successes,http_closes;
 static int chunk_attempts;
 static int status_shape;
+static unsigned volume_calls,last_volume,capture_volume,playback_volume,volume_changes;
 static int64_t elapsed_ms,last_exchange_ms;
 static bool transport_open;
 static int usage_polls,usage_disconnects,json_live;
+static int readonly_polls,readonly_disconnects;
+static bool queue_voice_during_usage;
 static unsigned usage_targets;
 static int command_handle, audio_handle;
 static unsigned char packet_data[65536];
@@ -115,7 +118,7 @@ static void *test_malloc(size_t size) {
  void *p=malloc(size);assert(p);for(unsigned i=0;i<16;i++)if(!allocations[i]){allocations[i]=p;allocation_sizes[i]=size;allocation_audio[i]=audio;if(audio)audio_bytes+=size;track_peak();return p;}
  abort();
 }
-static void test_free(void *p) { if(!p)return;for(unsigned i=0;i<16;i++)if(allocations[i]==p){if(allocation_audio[i])audio_bytes-=allocation_sizes[i];allocations[i]=NULL;free(p);return;}abort(); }
+static void test_free(void *p) { if(!p)return;for(unsigned i=0;i<16;i++)if(allocations[i]==p){bool cancel_after=mode==17 && allocation_sizes[i]==CAPTURE_BODY_BYTES && !queue_live && !state.recording;if(allocation_audio[i])audio_bytes-=allocation_sizes[i];allocations[i]=NULL;free(p);if(cancel_after){assert(!audio_bytes);pocket_voice_cancel();}return;}abort(); }
 static unsigned live_allocations(void) { unsigned n=0;for(unsigned i=0;i<16;i++)if(allocations[i])n++;return n; }
 time_t test_time(time_t *out) { if(out)*out=1735689600;return 1735689600; }
 void test_log(const char *tag,const char *fmt,...) { char *out=NULL;size_t cap=0;if(!strcmp(tag,"pocket_status")){out=status_log;cap=sizeof(status_log);}if(!strcmp(tag,"pocket_capture")){out=capture_log;cap=sizeof(capture_log);}if(!strcmp(tag,"pocket_voice_request")){out=request_log;cap=sizeof(request_log);}if(!out)return;va_list args;va_start(args,fmt);vsnprintf(out,cap,fmt,args);va_end(args); }
@@ -148,9 +151,9 @@ unsigned ulTaskNotifyTake(BaseType_t clear,TickType_t ticks) { (void)clear;(void
 void xTaskNotifyGive(TaskHandle_t task) { (void)task; }
 esp_err_t bsp_audio_init(void) { return ESP_OK; }
 esp_err_t bsp_audio_set_format(unsigned a,unsigned b,unsigned c) { assert(a==16000 && b==16 && c==1);return ESP_OK; }
-void bsp_audio_set_volume(unsigned volume) { (void)volume; }
-esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);capture_reads++;elapsed_ms+=64;if(mode!=9)held=false;return mode==15?ESP_FAIL:ESP_OK; }
-esp_err_t bsp_audio_write(const void *data,size_t size) { (void)data;playback_calls++;playback_bytes=size;return ESP_OK; }
+void bsp_audio_set_volume(unsigned volume) { assert(!record_active && volume<=100);volume_calls++;last_volume=volume; }
+esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);capture_volume=last_volume;capture_reads++;elapsed_ms+=64;if(mode!=9)held=false;return mode==15?ESP_FAIL:ESP_OK; }
+esp_err_t bsp_audio_write(const void *data,size_t size) { (void)data;playback_volume=last_volume;playback_calls++;playback_bytes=size;if(mode==19)pocket_voice_cancel();if(mode==21 && playback_calls==1){unsigned before=volume_calls;pocket_voice_set_volume(15);assert(volume_calls==before);volume_changes++;}return ESP_OK; }
 int mbedtls_base64_encode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;*size=4*((bytes+2)/3);if(cap<=*size)return -1;memset(out,'A',*size);if(bytes%3)out[*size-1]='=';if(bytes%3==1)out[*size-2]='=';out[*size]=0;uploaded_bytes=bytes;return 0; }
 int mbedtls_base64_decode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;(void)bytes;*size=mode==8?4096:2;if(cap<*size)return -1;memset(out,0,*size);return 0; }
 static cJSON root, available={"available",0,0,2}, voice, stt, failed={"failed",0,0,2};
@@ -158,7 +161,7 @@ static cJSON submitted={"submitted",0,0,2}, completed={"completed",0,0,2}, ready
 static cJSON task_id={"fixture-task",0,0,2}, text={"synthetic",0,0,2}, chunk_data={"synthetic-pcm",0,0,2}, chunks={NULL,1,1,3};
 cJSON *cJSON_Parse(const char *text) { (void)text;json_live++;return &root; }
 void cJSON_Delete(cJSON *value) { if(value){assert(json_live>0);json_live--;} }
-static cJSON *fixture_item(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if(mode!=8)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks"))return &chunks;if(!strcmp(key,"data"))return &chunk_data;return NULL; }
+static cJSON *fixture_item(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if(mode!=8 && mode<18)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks")){chunks.valueint=mode==19 || mode==21?2:1;chunks.valuedouble=chunks.valueint;return &chunks;}if(!strcmp(key,"data"))return &chunk_data;return NULL; }
 cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value,const char *key) {
  if(status_shape && (!strcmp(key,"stt") || !strcmp(key,"tts")))return status_shape==1?NULL:&available;
  return fixture_item(value,key);
@@ -169,7 +172,7 @@ int cJSON_IsBool(const cJSON *value) { return value && (value->type==0 || value-
 int cJSON_IsNumber(const cJSON *value) { return value && value->type==3; }
 esp_err_t pocket_http_json(const char *origin,const char *path,const char *token,const char *ca,const char *body,char *out,size_t cap,pocket_http_result *result) {
  (void)origin;(void)token;(void)ca;assert(cap>=3);snprintf(endpoint,sizeof(endpoint),"%s",path);if(strstr(path,"/status"))status_calls++;if(body)posts++;
- if(strstr(path,"/finish"))finish_calls++;
+ if(strstr(path,"/finish")){finish_calls++;if(mode==18)pocket_voice_cancel();if(mode==20 || mode==21){unsigned before=volume_calls;pocket_voice_set_volume(89);assert(volume_calls==before);}}
  if(strstr(path,"/abort"))abort_calls++;
  if(body && strstr(path,"/chunk"))chunk_attempts++;
  /* Model the deployed bridge's three-second idle expiry. Old firmware reuses
@@ -187,19 +190,49 @@ void pocket_usage_poll(unsigned target,const pocket_link_config *link,char *resp
  assert(target<2 && capacity==8192 && !state.busy && !state.recording && !state.playing && !json_live);
  assert(transport_open && strstr(endpoint,"/status") && link && response && !queue_live && !audio_bytes);
  bool buffer_found=false;for(unsigned i=0;i<16;i++)if(allocations[i]==response && allocation_sizes[i]==8192)buffer_found=true;
- assert(buffer_found);usage_polls++;usage_targets|=1u<<target;
+ assert(buffer_found);usage_polls++;usage_targets|=1u<<target;if(queue_voice_during_usage)state.busy=true;
 }
 void pocket_usage_disconnected(unsigned target) { assert(target<2);usage_disconnects++; }
+unsigned pocket_actions_poll_target(unsigned fallback){return fallback;}
+void pocket_actions_idle(unsigned target,const pocket_link_config *link,char *response,size_t capacity){
+ assert(target<2 && link && response && capacity==8192 && !state.busy && !state.recording && !state.playing && !json_live);
+ assert(transport_open && !queue_live && !audio_bytes);readonly_polls++;
+}
+void pocket_actions_disconnected(unsigned target){assert(target<2);readonly_disconnects++;}
 static void reset(int value) {
  for(unsigned i=0;i<16;i++)if(allocations[i]){free(allocations[i]);allocations[i]=NULL;}
  mode=value;status_shape=0;command_reads=audio_attempts=status_calls=posts=queue_live=recorder_tasks=record_active=packets=task_deletes=0;
  retained_capture=playback_calls=finish_calls=abort_calls=capture_reads=0;audio_bytes=peak_audio_bytes=queue_bytes=record_stack=uploaded_bytes=playback_bytes=0;queue_head=queue_tail=0;endpoint[0]=0;
  transport_failures=status_successes=http_closes=chunk_attempts=0;elapsed_ms=last_exchange_ms=0;transport_open=false;
- usage_polls=usage_disconnects=json_live=0;usage_targets=0;
+ usage_polls=usage_disconnects=json_live=readonly_polls=readonly_disconnects=0;usage_targets=0;queue_voice_during_usage=false;
+ volume_calls=last_volume=capture_volume=playback_volume=volume_changes=0;
  memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=capture_log[0]=request_log[0]=0;
+ pocket_voice_set_volume(60);pocket_voice_begin(1);
 }
 #define CHECK(c,m) do { if(!(c)){puts("FAIL: " m);return 1;} } while(0)
 int main(int argc,char **argv) {
+ if(argc>1 && !strcmp(argv[1],"controls")){
+  pocket_voice_state observed;pocket_voice_read(&observed);CHECK(observed.volume==60,"default volume is not 60");
+  pocket_voice_set_volume(0);pocket_voice_read(&observed);CHECK(observed.volume==0,"mute was not retained");
+  pocket_voice_set_volume(73);pocket_voice_read(&observed);CHECK(observed.volume==73,"requested volume lost");
+  pocket_voice_set_volume(101);pocket_voice_read(&observed);CHECK(observed.volume==100,"volume upper clamp missing");
+  pocket_voice_set_volume((unsigned)-1);pocket_voice_read(&observed);CHECK(observed.volume==100 && !volume_calls && !http_closes,"UI setter touched codec or transport");
+  reset(20);pocket_voice_set_volume(37);int control_exit=setjmp(stopped);if(!control_exit)network(NULL);
+  CHECK(capture_volume==37 && playback_volume==89 && volume_calls==2,"worker did not apply requested capture/playback volume");
+  CHECK(!queue_live && live_allocations()==2 && !state.busy,"volume scenario leaked capture resources");
+  reset(21);pocket_voice_set_volume(37);control_exit=setjmp(stopped);if(!control_exit)network(NULL);
+  CHECK(playback_calls==2 && playback_volume==15 && volume_calls==3 && volume_changes==1,"volume edit was not applied on next playback chunk");
+  reset(17);control_exit=setjmp(stopped);if(!control_exit)network(NULL);
+  CHECK(finish_calls==0 && abort_calls==1 && !playback_calls,"cancel after capture release admitted finish/model work");
+  CHECK(strstr(state.message,"discarded") && !strstr(state.message,"may continue"),"pre-finish discard was mislabeled");
+  CHECK(!queue_live && live_allocations()==2 && !state.busy && !state.recording,"pre-finish discard leaked capture resources");
+  reset(18);control_exit=setjmp(stopped);if(!control_exit)network(NULL);
+  CHECK(finish_calls==1 && abort_calls==0 && strstr(state.message,"may continue"),"post-finish cancel claimed upstream discard");
+  reset(19);control_exit=setjmp(stopped);if(!control_exit)network(NULL);
+  CHECK(playback_calls==1 && finish_calls==1 && !abort_calls && strstr(state.message,"Playback stopped"),"local playback cancel did not stop cooperatively");
+  CHECK(!queue_live && live_allocations()==2 && !state.busy && !state.playing,"playback cancel leaked resources");
+  reset(0);puts("PASS: volume requests/application and pre/post-finish cooperative cancellation");return 0;
+ }
  if(argc>1){
   reset(8);int exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
   CHECK(exit_kind==1 && finish_calls==1 && abort_calls==0,"synthetic voice did not finish capture");
@@ -227,12 +260,16 @@ int main(int argc,char **argv) {
  CHECK(status_calls==6 && status_successes==6 && !transport_failures && http_closes==6 && !transport_open,"status reused a connection after the bridge idle expiry");
  CHECK(state.online[0] && state.online[1] && state.speech_ready[0] && state.speech_ready[1],"fresh successful polls did not keep both target states ready");
  CHECK(usage_polls==6 && usage_targets==3 && !usage_disconnects,"Usage did not remain serialized and target scoped across fresh idle polls");
+ CHECK(readonly_polls==6 && !readonly_disconnects,"idle read-only tasks did not share the existing worker");
  CHECK(state.diagnostics[0].checked && state.diagnostics[1].checked && state.diagnostics[0].http_status==200 && state.diagnostics[1].http_status==200,"successful status observations were not target scoped");
  CHECK(state.diagnostics[0].backend_available && state.diagnostics[1].stt && !state.diagnostics[1].tts,"status diagnostic capabilities were invented or lost");
+ reset(10);queue_voice_during_usage=true;exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(usage_polls==6 && readonly_polls==0,"queued voice lost priority after an in-flight Usage GET");
  reset(11);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(status_calls==4 && !status_successes && transport_failures==4 && !state.online[0] && !state.online[1] && !state.speech_ready[0] && !state.speech_ready[1],"persistent failure was hidden instead of staying offline");
  CHECK(!posts && !audio_attempts && !queue_live,"failed status triggered side effects or audio allocations");
  CHECK(!usage_polls && usage_disconnects==4,"failed status started Usage TLS requests");
+ CHECK(!readonly_polls && readonly_disconnects==4,"failed status started task GETs or lost honest offline state");
  CHECK(state.diagnostics[0].transport_error==ESP_FAIL && state.diagnostics[1].http_status==-1 && !state.diagnostics[1].backend_available,"failed status retained stale success or mixed HTTP and transport errors");
  reset(12);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(posts==1 && transport_failures==1 && !finish_calls && !abort_calls,"failed audio submission was retried or duplicated");
@@ -304,7 +341,7 @@ class FirmwareVoiceTests(unittest.TestCase):
                     run = subprocess.run([str(binary)] + ([case] if case else []), capture_output=True, text=True, timeout=10)
                     self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
                     self.assertIn('PASS:', run.stdout)
-                    if case:
+                    if case in ('budget', 'phase'):
                         uploads = [json.loads(line.removeprefix('SYNTHETIC_UPLOAD '))
                                    for line in run.stdout.splitlines()
                                    if line.startswith('SYNTHETIC_UPLOAD ')]
@@ -317,3 +354,6 @@ class FirmwareVoiceTests(unittest.TestCase):
 
     def test_active_voice_memory_and_phase_release(self):
         self._exercise(['budget', 'phase'])
+
+    def test_worker_volume_and_cancel_boundaries(self):
+        self._exercise(['controls'])

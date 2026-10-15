@@ -305,7 +305,7 @@ void pocket_ui_set_awake(bool awake) {
  if(awake)lv_timer_resume(animation);else lv_timer_pause(animation);
 }
 void pocket_ui_render(const pocket_ui_view *v) {
- static const char *names[]={"HOME","CHAT","USAGE","DIAG","SCREEN"};
+ static const char *names[]={"HOME","CHAT","USAGE","DIAG","TASKS","TOOLS","AUDIO","ALERTS","SCREEN"};
  lv_label_set_text_fmt(title,"%s / %s",names[v->page],v->target==0?"WIN":"LINUX");
  const int percent=v->battery_percent<0?-1:v->battery_percent;
  if(percent>=0)lv_label_set_text_fmt(battery,"%d%%",percent);else lv_label_set_text(battery,"N/A");
@@ -321,8 +321,9 @@ void pocket_ui_render(const pocket_ui_view *v) {
  if(active)next=v->recording?CAT_LISTENING:v->playing?CAT_SPEAKING:CAT_THINKING;
  else if(v->page==POCKET_SCREEN_OFF||!v->online)next=CAT_SLEEPY;
  if(next!=mood){mood=next;frame=0;lv_obj_invalidate(cat);}
- show(cat,!v->setup_active&&v->page!=POCKET_USAGE&&v->page!=POCKET_DIAGNOSTICS);
- lv_obj_set_style_text_font(body,v->page==POCKET_DIAGNOSTICS&&!v->setup_active?&lv_font_montserrat_14:&lv_font_source_han_sans_sc_16_cjk,0);
+ show(cat,!v->setup_active&&(v->page==POCKET_STATUS||v->page==POCKET_CHAT||v->page==POCKET_SCREEN_OFF));
+ lv_obj_set_style_text_font(body,!v->setup_active&&(v->page==POCKET_DIAGNOSTICS||v->page==POCKET_TOOLS||v->page==POCKET_AUDIO||v->page==POCKET_ALERTS)?&lv_font_montserrat_14:&lv_font_source_han_sans_sc_16_cjk,0);
+ lv_label_set_long_mode(body,v->page==POCKET_TASKS&&!v->setup_active?LV_LABEL_LONG_DOT:LV_LABEL_LONG_WRAP);
  show(rows,false);show(bubble,false);show(body,false);show(note,false);show(off_option,false);
 
  if(v->setup_active){
@@ -345,7 +346,7 @@ void pocket_ui_render(const pocket_ui_view *v) {
   lv_label_set_text(footer,v->busy?"OK: stop\nUP/DOWN: pages":"Hold OK: talk\nUP/DOWN: pages");return;
  }
  if(v->page==POCKET_STATUS){
-  set_badge(v->online?"HERMES ONLINE":"HERMES POCKET",v->online?MINT:SLATE,154);
+  set_badge(v->alert_pending?"USAGE ALERT":v->online?"HERMES ONLINE":"HERMES POCKET",v->alert_pending?AMBER:v->online?MINT:SLATE,154);
   set_row(0,"Wi-Fi",v->wifi_connected?"Connected":"Offline",v->wifi_connected?MINT:CORAL);
   set_row(1,"Hermes",v->online?"Available":"Offline",v->online?MINT:CORAL);
   set_row(2,"Voice",v->speech_ready?"Ready":"Needs setup",v->speech_ready?MINT:AMBER);show_rows(182);
@@ -358,6 +359,37 @@ void pocket_ui_render(const pocket_ui_view *v) {
   show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);lv_label_set_text(body,detail);
   lv_label_set_text(footer,"Last observed status\nUP/DOWN: pages");return;
  }
+ if(v->page==POCKET_TASKS){
+  set_badge(v->task_count&&v->task_phase?v->task_phase:"TASK LIST",v->task_approval||v->task_unknown?AMBER:SKY,60);
+  show(note,true);lv_obj_set_pos(note,20,94);lv_obj_set_height(note,36);lv_obj_set_style_text_font(note,&lv_font_montserrat_14,0);
+  if(v->task_count)lv_label_set_text_fmt(note,"Task %u/%u  %s\n%s",v->task_selected+1,v->task_count,v->task_status?v->task_status:"Not fetched",v->task_truncated?"Result truncated":"");
+  else lv_label_set_text(note,v->task_status?v->task_status:"Not fetched");
+  show(body,true);lv_obj_set_pos(body,20,134);lv_obj_set_height(body,124);
+  if(v->task_has_result)lv_label_set_text(body,v->task_result&&v->task_result[0]?v->task_result:"Empty result");
+  else lv_label_set_text(body,v->task_approval?"Open Hermes to approve.":v->task_unknown?"Outcome unknown.\nCheck Hermes.":v->task_count?"No result yet.":"Hold OK to refresh tasks.");
+  lv_label_set_text(footer,v->busy?"OK: stop locally\nUP/DOWN: pages":"OK: next  Hold: reload\nUP/DOWN: pages");return;
+ }
+ if(v->page==POCKET_TOOLS){
+  static const char *tools[]={"STATUS","USAGE","TASKS","TODO UNAVAILABLE"};
+  const unsigned tool=v->tool<POCKET_TOOL_COUNT?(unsigned)v->tool:POCKET_TOOL_TODO_UNAVAILABLE;
+  set_badge(tools[tool],tool==POCKET_TOOL_TODO_UNAVAILABLE?SLATE:SKY,60);
+  show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);
+  static const char *details[]={"Read-only connection status\n\nHold OK to queue a refresh.\nDetails appear on Diag.","Account Usage\n\nHold OK to request fresh data.\nValues appear on Usage.","Read-only task list\n\nHold OK to queue a refresh.\nResults appear on Tasks.","Todo is not available\nfor this bridge."};
+  lv_label_set_text(body,details[tool]);
+  lv_label_set_text(footer,v->busy?"OK: stop locally\nUP/DOWN: pages":"OK: choose  Hold: run\nUP/DOWN: pages");return;
+ }
+ if(v->page==POCKET_AUDIO){
+  set_badge(v->audio_edit?"EDIT VOLUME":"SPEAKER VOLUME",v->audio_edit?MINT:SKY,60);
+  show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);
+  lv_label_set_text_fmt(body,"Volume: %u%%\n%s\n\n%s",v->volume,v->volume?"Speaker output":"Muted",v->audio_edit?"UP/DOWN: change by 5%\nOK: finish editing":"OK: edit volume");
+  lv_label_set_text(footer,v->busy?"OK: stop locally\nUP/DOWN: volume/pages":v->audio_edit?"OK: finish editing\nUP/DOWN: volume":"OK: edit\nUP/DOWN: pages");return;
+ }
+ if(v->page==POCKET_ALERTS){
+  set_badge("USAGE REMINDERS",SKY,60);show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);
+  if(v->alert_threshold)lv_label_set_text_fmt(body,"Used limit: %u%% used\nRemaining floor: %u%% left\nUSD floor: %s\n\n%s",v->alert_threshold,100-v->alert_threshold,v->usd_floor_enabled?"$1.00 USD":"off",v->alert_note?v->alert_note:"No reminder yet.");
+  else lv_label_set_text_fmt(body,"Percent alerts: off\nUSD floor: %s\n\n%s",v->usd_floor_enabled?"$1.00 USD":"off",v->alert_note?v->alert_note:"No reminder yet.");
+  lv_label_set_text(footer,v->busy?"OK: stop locally\nUP/DOWN: pages":"OK: limit  Hold: USD\nUP/DOWN: pages");return;
+ }
  if(v->page==POCKET_SCREEN_OFF){
   set_badge("SCREEN STANDBY",SLATE,154);
   show(body,true);lv_obj_set_pos(body,20,182);lv_obj_set_height(body,40);
@@ -365,7 +397,7 @@ void pocket_ui_render(const pocket_ui_view *v) {
   show(off_option,true);
   lv_label_set_text(footer,"OK: screen off\nUP/DOWN: pages");return;
  }
- set_badge("ACCOUNT OVERVIEW",SKY,60);
+ set_badge(v->alert_pending?"USAGE ALERT":"ACCOUNT OVERVIEW",v->alert_pending?AMBER:SKY,60);
  show_usage_rows(v);
  lv_label_set_text(footer,"OK: next window\nUP/DOWN: pages");
 }

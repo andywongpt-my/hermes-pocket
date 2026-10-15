@@ -5,5 +5,7 @@
 #include <stddef.h>
 
 void pocket_usage_read(unsigned target,pocket_usage_snapshot *out);
+/* Thread-safe request flag; consumed by the existing network worker. */
+void pocket_usage_force(unsigned target);
 void pocket_usage_disconnected(unsigned target);
 void pocket_usage_poll(unsigned target,const pocket_link_config *link,char *response,size_t capacity);

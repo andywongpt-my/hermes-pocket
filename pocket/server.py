@@ -19,6 +19,34 @@ from .transport import unique
 from .usage import UsageCache, PROVIDERS
 
 
+def _json_bytes(value):
+    return json.dumps(value,ensure_ascii=False,allow_nan=False).encode()
+
+
+def _task_view_response(task):
+    """Bound only the display preview; keep task identity and stored text intact."""
+    view=dict(task)
+    text=view.get('result')
+    if text is None:
+        view['result']=None;view['truncated']=False
+        if len(_json_bytes(view))<=8000:return 200,view
+        return 413,{'error':'task preview metadata exceeds device limit'}
+    prefix=text.encode()[:3000].decode('utf-8',errors='ignore')
+    view['result']=''.join(c if ord(c)>=32 or c in '\n\r\t' else ' ' for c in prefix)
+    view['truncated']=view['result']!=text
+    if len(_json_bytes(view))<=8000:return 200,view
+    prefix=view['result'];view['result']='';view['truncated']=True
+    if len(_json_bytes(view))>8000:
+        return 413,{'error':'task preview metadata exceeds device limit'}
+    low,high=0,len(prefix)
+    while low<high:
+        middle=(low+high+1)//2;view['result']=prefix[:middle]
+        if len(_json_bytes(view))<=8000:low=middle
+        else:high=middle-1
+    view['result']=prefix[:low]
+    return 200,view
+
+
 def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,decoder=decode_speech_pcm,usage_cache=None):
     if host!='127.0.0.1' and (not tls or host in ('0.0.0.0','::')):raise ValueError('LAN ingress requires TLS and a specific interface address')
     if not tokens or any(not isinstance(k,str) or not k for k in tokens):raise ValueError('authentication required')
@@ -45,7 +73,7 @@ def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,de
             super().setup();self.connection.settimeout(3)
             if isinstance(self.connection,ssl.SSLSocket):self.connection.do_handshake()
         def respond(self,code,value):
-            body=json.dumps(value,ensure_ascii=False,allow_nan=False).encode()
+            body=_json_bytes(value)
             self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8')
             self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
             self.close_connection=not (200<=code<300 and getattr(self,'body_consumed',False))
@@ -114,12 +142,10 @@ def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,de
                     rid=identifier(parts[1])
                     if len(parts)==3 and parts[2]=='view' and self.command=='GET':
                         task=selected.refresh(device,rid)
-                        text=task.get('result') or ''
-                        task['result']=text.encode()[:3000].decode('utf-8',errors='ignore')
-                        task['truncated']=len(text.encode())>3000
                         if hasattr(selected.backend,'handoff') and task['run_id'] and task['state'] in ('awaiting_approval','unknown'):
                             task['handoff']=selected.backend.handoff(task['run_id'])
-                        return self.respond(200,task)
+                        code,view=_task_view_response(task)
+                        return self.respond(code,view)
                     if len(parts)==3 and parts[2]=='speech':
                         if self.command=='POST' and raw==b'{}':return self.respond(202,voices[target].speak(device,rid))
                         if self.command=='GET':return self.respond(200,voices[target].speech_status(device,rid))

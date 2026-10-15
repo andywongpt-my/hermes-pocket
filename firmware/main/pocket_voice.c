@@ -3,6 +3,7 @@
 #include "pocket_setup.h"
 #include "pocket_http.h"
 #include "pocket_usage_client.h"
+#include "pocket_actions.h"
 #include "bsp_audio.h"
 #include "esp_random.h"
 #include "esp_timer.h"
@@ -23,8 +24,9 @@ typedef struct { size_t size; unsigned char pcm[4096]; } audio_frame;
 enum { CAPTURE_PCM_BYTES=2048, CAPTURE_QUEUE_FRAMES=4, CAPTURE_BODY_BYTES=2816 };
 typedef struct { size_t size; unsigned char pcm[CAPTURE_PCM_BYTES]; } capture_frame;
 static portMUX_TYPE mux=portMUX_INITIALIZER_UNLOCKED;
-static pocket_voice_state state;
+static pocket_voice_state state={.volume=60};
 static bool held,cancelled,capture_done,capture_failed;
+static enum { VOICE_PRE_FINISH,VOICE_SUBMISSION_ATTEMPT,VOICE_LOCAL_PLAYBACK } phase;
 enum { CAPTURE_READ_ERROR=1, CAPTURE_QUEUE_FULL=2, CAPTURE_NO_MEMORY=3, CAPTURE_NO_TASK=4 };
 enum { VOICE_STATUS=1, VOICE_BEGIN=2, VOICE_CHUNK=3, VOICE_FINISH=4, VOICE_STT=5, VOICE_REPLY=6, VOICE_SPEECH=7, VOICE_PLAYBACK=8, VOICE_ABORT=9 };
 typedef struct { unsigned reason,bytes,queue_peak,capture_ms,max_read_ms;int error; } capture_diagnostics;
@@ -36,7 +38,18 @@ static void message(const char *value){portENTER_CRITICAL(&mux);snprintf(state.m
 void pocket_voice_read(pocket_voice_state *out){portENTER_CRITICAL(&mux);*out=state;portEXIT_CRITICAL(&mux);}
 void pocket_voice_release(void){portENTER_CRITICAL(&mux);held=false;portEXIT_CRITICAL(&mux);}
 void pocket_voice_cancel(void){portENTER_CRITICAL(&mux);held=false;cancelled=true;portEXIT_CRITICAL(&mux);}
+void pocket_voice_set_volume(unsigned volume){portENTER_CRITICAL(&mux);state.volume=volume>100?100:volume;portEXIT_CRITICAL(&mux);}
+static void apply_volume(void){portENTER_CRITICAL(&mux);unsigned volume=state.volume;portEXIT_CRITICAL(&mux);bsp_audio_set_volume((uint8_t)volume);}
 static bool flags(bool *pressed){portENTER_CRITICAL(&mux);*pressed=held;bool stop=cancelled;portEXIT_CRITICAL(&mux);return stop;}
+static bool begin_finish(void){
+ /* This is the submission handoff. Cancellation winning this lock discards;
+    once handed off, an in-flight finish can have admitted upstream work. */
+ portENTER_CRITICAL(&mux);bool send=!cancelled;if(send)phase=VOICE_SUBMISSION_ATTEMPT;portEXIT_CRITICAL(&mux);return send;
+}
+static void cancellation_message(void){
+ portENTER_CRITICAL(&mux);unsigned current=phase;portEXIT_CRITICAL(&mux);
+ message(current==VOICE_PRE_FINISH?"Recording discarded":current==VOICE_LOCAL_PLAYBACK?"Playback stopped":"Stopped waiting; task may continue");
+}
 static void capture_error(unsigned reason,int error){
  portENTER_CRITICAL(&mux);capture_failed=true;capture_diag.reason=reason;capture_diag.error=error;held=false;portEXIT_CRITICAL(&mux);
 }
@@ -50,7 +63,7 @@ void pocket_voice_begin(unsigned target){
  if(target>1 || !commands || audio_unavailable)return;
  portENTER_CRITICAL(&mux);
  if(state.busy){cancelled=true;held=false;portEXIT_CRITICAL(&mux);return;}
- held=true;cancelled=false;state.busy=true;state.target=target;state.text[0]=0;state.reply[0]=0;
+ held=true;cancelled=false;phase=VOICE_PRE_FINISH;state.busy=true;state.target=target;state.text[0]=0;state.reply[0]=0;
  portEXIT_CRITICAL(&mux);
  if(xQueueSend(commands,&target,0)!=pdTRUE){portENTER_CRITICAL(&mux);state.busy=false;held=false;portEXIT_CRITICAL(&mux);}
 }
@@ -131,7 +144,7 @@ static bool wait_reply(pocket_link_config *link,const char *target,const char *t
  char path[193];snprintf(path,sizeof(path),"/targets/%s/tasks/%s/view",target,task);
  int64_t deadline=esp_timer_get_time()+180000000;
  while(esp_timer_get_time()<deadline){
-  bool pressed;if(flags(&pressed)){message("Stopped waiting; task continues");return false;}
+  bool pressed;if(flags(&pressed)){message("Stopped waiting; task may continue");return false;}
   cJSON *j=request(link,path,NULL,response,8192,VOICE_REPLY);if(!j)return false;
   const char *status=string(j,"state");
   if(!strcmp(status,"completed")){
@@ -145,6 +158,8 @@ static bool wait_reply(pocket_link_config *link,const char *target,const char *t
  message("Task continues in Hermes");return false;
 }
 static void play(pocket_link_config *link,const char *target,const char *task,char *response,audio_frame *frame){
+ portENTER_CRITICAL(&mux);phase=VOICE_LOCAL_PLAYBACK;portEXIT_CRITICAL(&mux);
+ bool pressed;if(flags(&pressed)){cancellation_message();return;}
  char path[193];snprintf(path,sizeof(path),"/targets/%s/tasks/%s/speech",target,task);
  if(!post_empty(link,path,response,VOICE_SPEECH))return;
  int chunks=0;int64_t deadline=esp_timer_get_time()+120000000;
@@ -166,7 +181,9 @@ static void play(pocket_link_config *link,const char *target,const char *task,ch
   cJSON *j=request(link,path,NULL,response,8192,VOICE_PLAYBACK);if(!j){complete=false;break;}
   const char *data=string(j,"data");size_t bytes=0;
   int error=mbedtls_base64_decode(frame->pcm,sizeof(frame->pcm),&bytes,(const unsigned char*)data,strlen(data));cJSON_Delete(j);
-  if(error || !bytes || bytes%2 || flags(&pressed) || bsp_audio_write(frame->pcm,bytes)!=ESP_OK){complete=false;message("Text ready; playback stopped");break;}
+  if(error || !bytes || bytes%2 || flags(&pressed)){complete=false;message("Text ready; playback stopped");break;}
+  apply_volume();
+  if(flags(&pressed) || bsp_audio_write(frame->pcm,bytes)!=ESP_OK){complete=false;message("Text ready; playback stopped");break;}
  }
  portENTER_CRITICAL(&mux);state.playing=false;portEXIT_CRITICAL(&mux);
  if(complete)message("Reply ready");
@@ -179,6 +196,7 @@ static void network(void *unused){
  unsigned target,poll_target=0;
  for(;;){
   if(xQueueReceive(commands,&target,pdMS_TO_TICKS(5000))!=pdTRUE){
+   poll_target=pocket_actions_poll_target(poll_target);
    pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false,reachable=false;int http_status=0;
    pocket_diagnostics observed={.checked=true,.wifi=current.wifi_connected,.utc_ready=time(NULL)>=1704067200};
    if(observed.wifi && observed.utc_ready)observed.configured=pocket_setup_link(poll_target,link);
@@ -202,8 +220,13 @@ static void network(void *unused){
    if(changed)ESP_LOGI("pocket_status","target=%u http=%d backend_available=%u stt=%u",poll_target,http_status,(unsigned)online,(unsigned)ready);
    /* Reuse this worker/client/buffer after deleting status JSON; queued voice
       takes priority. No Usage requests run during capture, waiting or playback. */
-   if(reachable && !voice_pending)pocket_usage_poll(poll_target,link,response,8192);
-   else if(!reachable)pocket_usage_disconnected(poll_target);
+   if(reachable && !voice_pending){
+    pocket_usage_poll(poll_target,link,response,8192);
+    /* A held talk gesture may arrive during the Usage GET. Give its queued
+       command priority before starting another read-only request. */
+    portENTER_CRITICAL(&mux);voice_pending=state.busy;portEXIT_CRITICAL(&mux);
+    if(!voice_pending)pocket_actions_idle(poll_target,link,response,8192);
+   }else if(!reachable){pocket_usage_disconnected(poll_target);pocket_actions_disconnected(poll_target);}
    /* Idle polling outlives the bridge's keep-alive budget. Release this
       connection before waiting; active audio/task requests keep their reuse. */
    pocket_http_close();
@@ -227,7 +250,7 @@ static void network(void *unused){
   audio_queue=xQueueCreate(CAPTURE_QUEUE_FRAMES,sizeof(capture_frame));frame=malloc(sizeof(*frame));body=malloc(CAPTURE_BODY_BYTES);
   if(!audio_queue || !frame || !body){message("Not enough memory for voice");goto finished;}
   if(bsp_audio_init()!=ESP_OK || bsp_audio_set_format(16000,16,1)!=ESP_OK){message("Audio hardware unavailable");goto finished;}
-  bsp_audio_set_volume(60);
+  apply_volume();
   snprintf(path,sizeof(path),"/targets/%s/audio/%s",name,id);
   cJSON *begin=request(link,path,"{\"chat_id\":\"pocket\"}",response,8192,VOICE_BEGIN);if(!begin)goto finished;cJSON_Delete(begin);started=true;
   if(flags(&pressed) || !pressed)goto abort_capture;
@@ -259,6 +282,7 @@ static void network(void *unused){
   /* The recorder is done and every queued frame was uploaded. Reclaim capture
      memory before finish/STT/task/speech requests can need another TLS handshake. */
   if(!release_capture(&frame,&body)){message("Audio stalled; restart device");goto abort_capture;}
+  if(!begin_finish())goto abort_capture;
   snprintf(path,sizeof(path),"/targets/%s/audio/%s/finish",name,id);
   if(!post_empty(link,path,response,VOICE_FINISH))goto finished;
   message("Transcribing...");
@@ -288,6 +312,7 @@ static void network(void *unused){
   if(playback){memset(playback,0,sizeof(*playback));free(playback);playback=NULL;}
   memset(link,0,sizeof(*link));
   if(fault)message("Audio stalled; restart device");
+  else {portENTER_CRITICAL(&mux);bool stopped=cancelled && !capture_failed;portEXIT_CRITICAL(&mux);if(stopped)cancellation_message();}
   pocket_http_close();
  }
 }

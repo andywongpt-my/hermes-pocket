@@ -8,12 +8,13 @@ Validation status for this increment is listed below.
 The current animated UI and memory fix passed flash/readback and boot checks.
 Authenticated Linux status returned HTTP 200 with the backend available over
 verified HTTPS. Physical display/button acceptance, live text tasks and end-to-end
-voice remain unverified; the checked bridge reports STT unavailable.
+voice remain unverified. The checked Linux bridge advertises configured STT/TTS;
+capabilities alone do not establish microphone or playback success.
 
-UP/DOWN changes Home / Chat / Usage / Screen pages. On Home, click OK to select
-Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
+UP/DOWN changes Home / Chat / Usage / Diagnostics / Tasks / Tools / Audio /
+Alerts / Screen pages. On Home, click OK to select and save Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
 speak, then release to send. Press OK while waiting or playing to stop waiting or
-playback. This does not cancel a task already running in Hermes. Approval-required
+playback. UP during recording discards capture. This does not cancel a task already running in Hermes. Approval-required
 or uncertain outcomes direct the owner to the trusted Hermes interface.
 
 The screen lives in `main/pocket_ui.c`, pure LVGL with no ESP-IDF calls. An
@@ -38,7 +39,7 @@ entire wake hold/release and delayed click are ignored, so waking cannot select
 an agent, enter setup, record audio, change page or immediately turn off again.
 Release the wake button, then use a fresh press to interact normally.
 
-The current firmware passed ESP-IDF compilation, app-only flashing
+The diagnostics/target-preference firmware passed ESP-IDF compilation, app-only flashing
 at 0x10000 and independent flash verification. Boot reached app_main, detected
 CW2017 and showed no observed panic or driver errors. Settings partitions were
 not written. This does not establish visual, battery-accuracy, button or voice
@@ -63,12 +64,24 @@ connection/response buffers without reserving inactive audio memory needed by TL
 Transcription and reply synthesis happen through the configured host bridge.
 Both targets may use the Linux voice service, but chat/task state stays separate.
 
-Known limits: hardware acceptance is the owner's responsibility; source-level
-integration is not proof of live compatibility. Verify STT configuration on the
-chosen host. Usage sources are not connected. The bundled font covers
-common CJK glyphs only. This candidate does not provide a complete on-device task
-browser, approval UI or full transcript paging. Replies are bounded on screen;
-complete history remains on the bridge/Hermes host.
+Tasks shows at most twelve device-scoped Pocket tasks and a selected 768-byte
+UTF-8 result preview. Hold OK to refresh; short OK selects the next task. Real
+states include approval and unknown outcomes; there is no invented progress
+percentage. Tools queues only existing read-only Status, Usage and Task GETs.
+Todo remains unavailable without a supported source.
+
+On Audio, OK enters/exits volume editing; UP/DOWN changes 0–100 while editing.
+On Alerts, OK cycles 80%, 90% and off for percentages; hold OK toggles the
+independent, labeled $1 low-credit threshold. Alerts require fresh available Usage samples and never invent account
+data. Reset notices require a fresh next-period sample. Target selection survives
+reboot through a separate validated NVS key; volume, alert choices and reminder
+deduplication last for the current device session.
+
+Known limits: source-level integration is not proof of live compatibility.
+Usage sources are not connected. The bundled font covers common CJK glyphs only.
+Approval and full results/transcript history remain on the bridge/Hermes host.
+Physical display/buttons, cross-reboot target acceptance and end-to-end voice
+remain separate acceptance checks. See ../docs/VERIFICATION.md for build/flash evidence.
 
 Build in an activated official ESP-IDF 5.5.3 environment:
 

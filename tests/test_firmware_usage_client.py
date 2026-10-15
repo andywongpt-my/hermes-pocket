@@ -126,6 +126,7 @@ HARNESS = r'''
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdarg.h>
 #include "cJSON.h"
 static void *test_calloc(size_t,size_t);
 static void test_free(void *);
@@ -135,6 +136,13 @@ static void test_free(void *);
 #undef calloc
 #undef free
 static int fixture_index,http_calls,live_allocations,fail_allocate,fail_http,last_target;
+static int usage_logs;
+static char usage_log[256];
+void test_log(const char *tag,const char *format,...){
+ assert(!strcmp(tag,"pocket_usage")&&!strstr(format,"%s"));
+ va_list args;va_start(args,format);vsnprintf(usage_log,sizeof usage_log,format,args);va_end(args);usage_logs++;
+ assert(!strstr(usage_log,"https")&&!strstr(usage_log,"fixture")&&!strstr(usage_log,"token")&&!strstr(usage_log,"source")&&!strstr(usage_log,"value=")&&!strchr(usage_log,'{'));
+}
 static time_t clock_now=1735689600;
 static void *test_calloc(size_t count,size_t bytes){if(fail_allocate)return NULL;void *p=calloc(count,bytes);assert(p);live_allocations++;return p;}
 static void test_free(void *p){if(p){live_allocations--;free(p);}}
@@ -166,6 +174,7 @@ int main(void){
  pocket_usage_read(0,&out);CHECK(out.providers[0].availability==POCKET_USAGE_UNFETCHED,"initial usage must be unfetched");
  pocket_usage_poll(0,&link,response,sizeof(response));pocket_usage_read(0,&out);
  CHECK(http_calls==1 && last_target==0,"usage polling is not target scoped");
+ CHECK(usage_logs==1 && !strcmp(usage_log,"target=0 http=200 decoded=1 p0=3 m0=1 p1=3 m1=1 p2=3 m2=2"),"safe decoded Usage observation missing");
  CHECK(out.providers[0].availability==POCKET_USAGE_AVAILABLE && out.providers[0].metrics[0].has_value && out.providers[0].metrics[0].value==0,"genuine zero was lost");
  CHECK(out.providers[2].metric_count==2 && out.providers[2].metrics[0].unit==POCKET_USAGE_USD_CREDIT && out.providers[2].metrics[0].category==POCKET_USAGE_INCLUDED_CREDIT && out.providers[2].metrics[1].category==POCKET_USAGE_PURCHASED_CREDIT,"included and purchased credit merged");
  pocket_usage_poll(0,&link,response,sizeof(response));CHECK(http_calls==1,"usage polled faster than its bounded cadence");
@@ -187,13 +196,21 @@ int main(void){
  clock_now+=31;fixture_index=16;pocket_usage_poll(0,&link,response,sizeof(response));pocket_usage_read(0,&out);CHECK(out.providers[0].availability==POCKET_USAGE_FAILED,"trailing non-JSON data was accepted");
  clock_now+=31;fixture_index=17;pocket_usage_poll(0,&link,response,sizeof(response));pocket_usage_read(0,&out);CHECK(out.providers[0].availability==POCKET_USAGE_FAILED,"multiple JSON roots were accepted");
  clock_now+=31;fixture_index=18;pocket_usage_poll(0,&link,response,sizeof(response));pocket_usage_read(0,&out);CHECK(out.providers[0].availability==POCKET_USAGE_FAILED,"embedded NUL hid trailing HTTP payload bytes");
+ clock_now+=31;fixture_index=0;pocket_usage_poll(0,&link,response,sizeof response);
+ int before_http=http_calls,before_logs=usage_logs;
+ pocket_usage_force(0);pocket_usage_poll(0,&link,response,sizeof response);
+ CHECK(http_calls==before_http+1 && usage_logs==before_logs,"forced refresh failed or identical observation repeated its log");
+ pocket_usage_poll(0,&link,response,sizeof response);CHECK(http_calls==before_http+1,"force bypass became continuous polling");
+ fail_http=1;pocket_usage_force(0);pocket_usage_poll(0,&link,response,sizeof response);
+ CHECK(strstr(usage_log,"http=0 decoded=0 p0=6")!=NULL,"failed Usage observation was hidden");
+ pocket_usage_disconnected(0);CHECK(strstr(usage_log,"http=0 decoded=0 p0=1")!=NULL,"unavailable and failed Usage observations merged");
  CHECK(live_allocations==0,"usage snapshot leaked temporary memory");puts("PASS: usage decoding, null/zero, target isolation, cadence, cached failures and bounded allocation");return 0;
 }
 '''
 
 
 def compile_fixture(temp, source, compiler, real_cjson=None):
-    headers = {'esp_err.h': VOICE_HEADERS['esp_err.h'], 'time.h': VOICE_HEADERS['time.h'],
+    headers = {'esp_err.h': VOICE_HEADERS['esp_err.h'], 'time.h': VOICE_HEADERS['time.h'], 'esp_log.h': VOICE_HEADERS['esp_log.h'],
                'freertos/FreeRTOS.h': VOICE_HEADERS['freertos/FreeRTOS.h']}
     if not real_cjson:
         headers['cJSON.h'] = CJSON_HEADER

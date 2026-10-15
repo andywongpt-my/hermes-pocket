@@ -1,6 +1,8 @@
 /* MIT. Bounded read-only reports; uses the existing serial HTTPS transport. */
 #include "pocket_usage_client.h"
+#include <stdatomic.h>
 #include "pocket_http.h"
+#include "esp_log.h"
 #include "cJSON.h"
 #include "freertos/FreeRTOS.h"
 #include <limits.h>
@@ -13,6 +15,20 @@ static portMUX_TYPE usage_lock=portMUX_INITIALIZER_UNLOCKED;
 static pocket_usage_snapshot snapshots[2];
 static int64_t next_poll[2];
 static char origins[2][193];
+typedef struct { bool seen,decoded;int http;unsigned availability[3],counts[3]; } usage_observation;
+static usage_observation observed[2];
+static void observe(unsigned target,int http,bool decoded){
+ usage_observation current={.seen=true,.decoded=decoded,.http=http};
+ portENTER_CRITICAL(&usage_lock);
+ for(unsigned p=0;p<3;p++){current.availability[p]=(unsigned)snapshots[target].providers[p].availability;current.counts[p]=snapshots[target].providers[p].metric_count;}
+ portEXIT_CRITICAL(&usage_lock);
+ bool changed=!observed[target].seen || observed[target].http!=http || observed[target].decoded!=decoded;
+ for(unsigned p=0;p<3;p++)if(current.availability[p]!=observed[target].availability[p] || current.counts[p]!=observed[target].counts[p])changed=true;
+ if(!changed)return;
+ observed[target]=current;
+ ESP_LOGI("pocket_usage","target=%u http=%d decoded=%u p0=%u m0=%u p1=%u m1=%u p2=%u m2=%u",target,http,(unsigned)decoded,
+          current.availability[0],current.counts[0],current.availability[1],current.counts[1],current.availability[2],current.counts[2]);
+}
 
 static bool bounded_json(const char *value,size_t length){
  if(!length || length>=8192 || memchr(value,0,length))return false;
@@ -135,24 +151,31 @@ void pocket_usage_read(unsigned target,pocket_usage_snapshot *out){
 void pocket_usage_disconnected(unsigned target){
  if(target>1)return;
  next_poll[target]=0;mark(target,POCKET_USAGE_UNAVAILABLE);
+ observe(target,0,false);
 }
+static atomic_uint force_targets;
+void pocket_usage_force(unsigned target){if(target<2)atomic_fetch_or_explicit(&force_targets,1u<<target,memory_order_relaxed);}
 void pocket_usage_poll(unsigned target,const pocket_link_config *link,char *response,size_t capacity){
  if(target>1 || !link || !response || capacity<2 || capacity>8192)return;
  int64_t now=(int64_t)time(NULL);if(now<1704067200)return;
  if(strcmp(origins[target],link->origin)){
+  observed[target].seen=false;
   portENTER_CRITICAL(&usage_lock);memset(&snapshots[target],0,sizeof(snapshots[target]));portEXIT_CRITICAL(&usage_lock);
   memcpy(origins[target],link->origin,sizeof(origins[target]));origins[target][sizeof(origins[target])-1]=0;next_poll[target]=0;
  }
- if(now<next_poll[target] && now+30>=next_poll[target])return;
+ const bool forced=(atomic_fetch_and_explicit(&force_targets,~(1u<<target),memory_order_relaxed)&(1u<<target))!=0;
+ if(!forced && now<next_poll[target] && now+30>=next_poll[target])return;
  next_poll[target]=now+30;
- pocket_http_result result;
+ pocket_http_result result={0};
  const char *route=target?"/targets/linux/usage":"/targets/windows/usage";
- if(pocket_http_json(link->origin,route,link->token,link->ca,NULL,response,capacity,&result)!=ESP_OK || result.status!=200){mark(target,POCKET_USAGE_FAILED);return;}
- if(result.length>=capacity || response[result.length]!=0){mark(target,POCKET_USAGE_FAILED);return;}
+ if(pocket_http_json(link->origin,route,link->token,link->ca,NULL,response,capacity,&result)!=ESP_OK || result.status!=200){mark(target,POCKET_USAGE_FAILED);observe(target,result.status,false);return;}
+ if(result.length>=capacity || response[result.length]!=0){mark(target,POCKET_USAGE_FAILED);observe(target,result.status,false);return;}
  pocket_usage_snapshot *parsed=calloc(1,sizeof(*parsed));
- if(!parsed){mark(target,POCKET_USAGE_FAILED);return;}
- if(decode(response,result.length,parsed)){
+ if(!parsed){mark(target,POCKET_USAGE_FAILED);observe(target,result.status,false);return;}
+ const bool decoded=decode(response,result.length,parsed);
+ if(decoded){
   portENTER_CRITICAL(&usage_lock);snapshots[target]=*parsed;portEXIT_CRITICAL(&usage_lock);
  }else mark(target,POCKET_USAGE_FAILED);
  memset(parsed,0,sizeof(*parsed));free(parsed);
+ observe(target,result.status,decoded);
 }

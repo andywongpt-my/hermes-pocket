@@ -47,6 +47,20 @@ int main(void) {
  pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_USAGE && m.usage_window==1);
  pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_DIAGNOSTICS && m.usage_window==1);
  assert(pocket_press(&m,POCKET_OK)==POCKET_NONE && !m.recording);
+ pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_TASKS && m.usage_window==1);
+ pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_TOOLS);
+ for(unsigned i=1;i<=4;i++){pocket_press(&m,POCKET_OK);assert(m.tool==i%4 && m.page==POCKET_TOOLS);}
+ pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_AUDIO && m.volume==60 && !m.audio_edit);
+ pocket_press(&m,POCKET_OK);assert(m.audio_edit);
+ for(unsigned i=0;i<30;i++)pocket_press(&m,POCKET_UP);
+ assert(m.page==POCKET_AUDIO && m.volume==100);
+ for(unsigned i=0;i<30;i++)pocket_press(&m,POCKET_DOWN);
+ assert(m.page==POCKET_AUDIO && m.volume==0);
+ pocket_press(&m,POCKET_OK);assert(!m.audio_edit);
+ pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_ALERTS && m.alert_threshold==80 && !m.usd_floor_enabled);
+ pocket_press(&m,POCKET_OK);assert(m.alert_threshold==90);
+ pocket_press(&m,POCKET_OK);assert(m.alert_threshold==0);
+ pocket_press(&m,POCKET_OK);assert(m.alert_threshold==80);
  pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_SCREEN_OFF && m.usage_window==1);
  pocket_press(&m,POCKET_OK);assert(m.usage_window==1);
  for(int i=0;i<1000;i++) { pocket_press(&m,POCKET_DOWN); assert(m.page<POCKET_PAGE_COUNT); }
