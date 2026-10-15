@@ -52,5 +52,13 @@ class HTTPTests(unittest.TestCase):
     def test_stop(self):
         self.call('/tasks',{'version':1,'request_id':'one','text':'hello'})
         self.assertEqual(self.call('/tasks/one/stop',{})[1]['state'],'cancelled')
+    def test_abandon(self):
+        def fail(*args,**kwargs):raise ConnectionError('offline')
+        self.fake.create=fail
+        self.call('/tasks',{'version':1,'request_id':'one','text':'hello'})
+        self.assertEqual(self.call('/tasks/one/abandon',{'force':True})[0],400)
+        self.assertEqual(self.call('/tasks/one/abandon',{},key='fixture-b')[0],404)
+        self.assertEqual(self.call('/tasks/one/abandon',{})[1]['state'],'failed')
+        self.assertEqual(self.call('/tasks/one/abandon',{})[0],409)
 
 if __name__=='__main__':unittest.main()

@@ -1,5 +1,6 @@
 import unittest
 from pocket.hermes import HermesAdapter, UpstreamError
+from pocket.transport import UpstreamRejected
 
 class AdapterTests(unittest.TestCase):
     def setUp(self):
@@ -32,6 +33,26 @@ class AdapterTests(unittest.TestCase):
     def test_missing_capability(self):
         self.response={'features':{'run_submission':True}}
         with self.assertRaises(UpstreamError):self.adapter.check()
+    def test_unreachable_probe_keeps_verdict(self):
+        self.ready()
+        def offline(*args):raise OSError('offline')
+        self.adapter.transport=offline
+        with self.assertRaises(OSError):self.adapter.check()
+        self.assertTrue(self.adapter.ready)
+    def test_rejected_probe_clears_verdict(self):
+        self.ready()
+        def revoked(*args):raise UpstreamRejected('upstream HTTP 401')
+        self.adapter.transport=revoked
+        with self.assertRaises(UpstreamRejected):self.adapter.check()
+        self.assertFalse(self.adapter.ready)
+        with self.assertRaises(UpstreamError):self.adapter.create('hi','d:r')
+    def test_probe_does_not_block_concurrent_calls(self):
+        self.ready();seen=[]
+        def transport(method,path,body,headers):
+            if path=='/v1/capabilities':seen.append(self.adapter.ready)
+            return {'features':{'run_submission':True,'run_status':True,'run_stop':True}}
+        self.adapter.transport=transport;self.adapter.check()
+        self.assertEqual(seen,[True])
     def test_malformed_admission(self):
         self.ready();self.response={'run_id':False}
         with self.assertRaises(ValueError):self.adapter.create('hi','device:request')

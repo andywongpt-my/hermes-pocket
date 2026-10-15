@@ -1,7 +1,8 @@
 import io
 import json
 import unittest
-from pocket.transport import JSONTransport, TransportError
+import urllib.error
+from pocket.transport import JSONTransport, TransportError, UpstreamRejected
 
 class Response(io.BytesIO):
     status=200
@@ -35,6 +36,18 @@ class TransportTests(unittest.TestCase):
         t=JSONTransport('https://example.com','fixture-secret',opener=Broken())
         with self.assertRaises(TransportError) as error:t('GET','/v1/capabilities',None,{})
         self.assertNotIn('fixture-secret',str(error.exception))
+    def test_answered_errors_are_rejections(self):
+        class Unauthorized:
+            def open(self,request,timeout):raise urllib.error.HTTPError(request.full_url,401,'no',{},io.BytesIO())
+        t=JSONTransport('https://example.com','fixture-secret',opener=Unauthorized())
+        with self.assertRaises(UpstreamRejected):t('GET','/v1/capabilities',None,{})
+        for body in (b'[]',b'{'):
+            with self.subTest(body=body),self.assertRaises(UpstreamRejected):
+                JSONTransport('https://example.com','fixture-secret',opener=Opener(body))('GET','/v1/capabilities',None,{})
+        class Offline:
+            def open(self,*args,**kwargs):raise OSError('offline')
+        with self.assertRaises(TransportError) as error:JSONTransport('https://example.com','fixture-secret',opener=Offline())('GET','/v1/capabilities',None,{})
+        self.assertNotIsInstance(error.exception,UpstreamRejected)
     def test_repr_does_not_expose_key(self):
         self.assertNotIn('fixture-secret',repr(JSONTransport('https://example.com','fixture-secret')))
 

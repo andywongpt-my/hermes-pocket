@@ -1,16 +1,20 @@
 """Pinned Hermes HTTP contract with injected transport; no credentials stored here."""
 from .schema import identifier
+from .transport import UpstreamRejected
 
 class UpstreamError(RuntimeError):pass
 
 class HermesAdapter:
     def __init__(self,transport):self.transport=transport;self.ready=False
     def check(self):
-        self.ready=False
-        data=self.transport('GET','/v1/capabilities',None,{})
+        # An unreachable probe proves nothing about capabilities, so it keeps the
+        # last verdict; clearing it first would fail concurrent submissions. An
+        # answered rejection (such as a revoked token's 401) does clear it.
+        try:data=self.transport('GET','/v1/capabilities',None,{})
+        except UpstreamRejected:self.ready=False;raise
         features=data.get('features',{}) if isinstance(data,dict) else {}
         if not isinstance(features,dict) or not all(features.get(k) is True for k in ('run_submission','run_status','run_stop')):
-            raise UpstreamError('required Hermes capabilities unavailable')
+            self.ready=False;raise UpstreamError('required Hermes capabilities unavailable')
         self.ready=True;return features
     def _call(self,method,path,body=None,headers=None):
         if not self.ready:raise UpstreamError('Hermes capabilities not verified')

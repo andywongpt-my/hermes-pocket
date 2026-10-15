@@ -48,6 +48,7 @@ class ChatService:
             for row in self._rows(device,chat)[-100:]:
                 try:task=self.service.refresh(device,row['task'])
                 except NotFound:task={'state':'unknown','result':None}
+                except Exception:task=self.store.get(device,row['task']) # Last stored state; never rewritten.
                 result.append({'request_id':row['request'],'task_id':row['task'],'text':row['text'],
                                'state':task['state'],'result':task['result']})
             return result
