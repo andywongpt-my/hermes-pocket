@@ -1,75 +1,82 @@
 # Current publication verification: 2026-10-15
 
-The combined controls, debug and voice transport candidate was built from source
-`cc444950435a7af61fffeb1380df8b4001d8fcb8` and app-only flashed at `0x10000`.
-Application size: 1,813,216 bytes. Application SHA256:
-`4c45a917619bd7ece4d91cd11b1d59b27aa97eef914ca998b2000058523933fa`.
+The integrated controls, debug and voice timing candidate was built from firmware
+source `3a80286b83f4d04b42cc02c9aab8f1f6076afa61` and app-only flashed at `0x10000`.
+Application size: 1,814,304 bytes. Application SHA256:
+`63dd20c697c468830918db24d054fdc4f38da6934c4ce5f50f2276e23710ca57`.
 Independent application and retained bootloader verification passed; the retained
 partition table was unchanged. NVS, pairing, other partitions and security settings
-were not written. This candidate is not yet a physically verified voice fix.
+were not written. Physical voice improvement and a complete microphone/Hermes/
+playback round trip remain unverified.
 
-- The final offline suite ran 170 unittest checks with zero failures/errors and
-  five Windows/environment skips. The simulator passed and the guarded runner
-  recorded zero external-network attempts. Skips were the separate LVGL suite
-  and four Linux-only process-tree/symlink checks; Linux CI covers those cases.
-- The unchanged UI had previously rendered all 42 firmware states at 240x320
-  using cached LVGL 9.5, the device's 24 KiB pool and assertions enabled.
-  CI renders the current source again. Host rendering does not establish physical
-  display/button acceptance.
-- ESP-IDF 5.5.3 compilation and linking passed. The exact source manifest,
-  normalized tested source and compiled control/debug symbols were checked.
-  SDK configuration, TLS certificate/hostname validation, authentication,
-  timeouts, submission retry policy and the 22,000-byte audio budget are unchanged.
-- The physical boot window was 09:10:59-09:12:29 UTC on 2026-10-15.
-  The expected ELF identity reached `app_main`; 5 Linux HTTPS status
-  cycles passed across 46.8 seconds. Backend availability and STT readiness
-  were observed. There were zero Linux failure events, unexpected resets,
-  fatal errors or Wi-Fi drops in this bounded window. Minimum observed
-  post-request internal free heap was 45,192 bytes; the minimum largest
-  block was 32,768 bytes. This is idle readiness, not an audio stress test.
-- This bounded boot did not record a successful Usage decode. The preceding controls build established device Usage HTTP 200 and not_configured parsing; that source is unchanged, but this is not a new physical Usage acceptance.
-  Real quotas, resets and quota alerts remain unavailable until supported feeds are configured.
-- On the preceding controls build, an owner-triggered recording explicitly failed
-  because its four-frame queue filled. The safe diagnostic recorded a 1,175 ms
-  maximum upload against about 256 ms of queued PCM. The exact cause of that
-  physical upload delay remains unproven; the chunk handler's synthetic timing
-  does not measure the device's network path.
-- The candidate enables TCP_NODELAY on each connected HTTP socket and requests
-  an awake Wi-Fi radio only during capture/upload. It restores the exact previous
-  power mode before finish/STT/provider waits and on failures. Failed restoration
-  preserves the original mode for bounded worker recovery and blocks finish.
-  It keeps the four-frame queue and visible discard behavior without silently
-  dropping frames or retrying uncertain submissions.
-- Native worker regressions cover continuous synthetic 16 kHz PCM, a 200 ms
-  upload jitter, radio get/set/restore failures and eventual restoration. An
-  injected 1,175 ms stall still explicitly aborts without finish; it is not
-  relabeled a success. These checks do not prove real radio throughput.
-  Independent review findings were fixed and re-reviewed with no remaining
-  must-fix findings.
-- Safe numeric diagnostics retain target-scoped TLS/verify/heap, capture reason,
-  queue and request-stage timings, status and Usage decode counts. Slow chunk
-  logs additionally report connect, headers-sent and first-response elapsed
-  times plus TCP_NODELAY state. The headers-to-response span includes request
-  body transmission and server wait; it does not isolate either cost.
-  No credentials, audio, transcripts, reply bodies or real allowance values
-  are logged. No recording or paid/model canary was triggered by validation.
-- Main input/wake/setup/long-release, target selection, task generation/refresh,
-  typed Usage reminders, cancellation, volume and phase-based audio memory
-  cleanup regressions remain included. Task browsing is limited to twelve
-  device-scoped Pocket tasks, with a 768-byte UTF-8 device preview and an
-  8000-byte serialized host response bound. Todo has no supported read-only source.
-- The checked Linux service advertises STT/TTS. A successful owner-recorded
-  microphone/Hermes/playback round trip and physical upload improvement on this
-  candidate remain unverified. Physical button/volume/battery/display acceptance
-  and target selection across a physical reboot remain separate checks.
-- The narrow serialized task-preview/null-result host fix is source-tested;
-  this firmware flash does not deploy the separate host bridge. No account feed,
-  credential, provider permission, router/Tailscale or TLS policy was changed.
-  Publication remains on the existing feature PR; main merge is not approved.
+- The final offline suite ran 172 unittest checks with zero failures/errors,
+  five Windows/environment skips, a passing simulator and zero guarded external
+  network attempts. Skips were the separate LVGL suite and four Linux-only
+  containment/symlink checks. PR CI runs the Linux and firmware checks again.
+- ESP-IDF 5.5.3 compilation/linking passed, with exact source/test manifest and
+  compiled control/debug symbols verified. SDK settings are unchanged. Static
+  BSS grew by 112 bytes relative to the preceding deployed firmware; the
+  four-frame capture queue and 22,000-byte audio budget remain unchanged.
+- Physical boot ran 10:16:44-10:18:14 UTC.
+  The expected ELF reached `app_main`; 6 authenticated Linux HTTPS status
+  cycles passed across 57.3 seconds, with backend availability and
+  STT readiness observed. The bounded window had no Linux failure events,
+  unexpected resets, fatal errors or Wi-Fi drops. Minimum post-request internal
+  free heap was 45,120 bytes; minimum largest block was
+  32,768 bytes. This establishes idle readiness.
+- The device received Linux Usage HTTP 200 and decoded all three providers as not_configured with zero metrics.
+  Real quotas, resets and allowance alerts remain unavailable until supported feeds are configured.
+- The preceding firmware's owner recording still filled its four-frame queue:
+  capture reason 2, 14,336 PCM bytes, 389 ms capture and 246 ms maximum upload.
+  Its first-response timing used a later origin than the outer request duration;
+  that gap did not uniquely identify a network wait. An earlier recording reached
+  1,175 ms maximum upload. Neither failure is relabeled a successful recording.
+- Successful reused audio chunks now avoid full heap scans and per-chunk
+  diagnostics. New connections, automatic reconnects, begin/end and failure
+  boundaries retain available heap/TLS diagnostics. Flags distinguish skipped
+  pre-request measurements from measured zero. No audio frames are silently
+  dropped and uncertain submissions are not retried.
+- One deferred numeric upload summary reports the slowest request's connect,
+  headers, first response, body, finish and perform-end offsets from a common
+  HTTP-entry origin. Microsecond costs distinguish pre/post heap work, SDK
+  perform, application callback, wrapper logging/JSON and deferred-summary output.
+  SDK perform still includes transport/TLS/body processing, scheduler preemption
+  and SDK event posting; callback time does not isolate event-queue wait. Wrapper
+  post time excludes the caller's JSON deletion and next-frame preparation.
+  The summary runs after capture/provider handling, never per successful chunk.
+- Native regressions inject heap, body-wait, logging and JSON costs independently;
+  preserve reconnect/error diagnostics; and keep slow diagnostics out of
+  continuous PCM capture. They cover sustainable cadence, bounded jitter and an
+  explicit abort without finish on a 1,175 ms stall. The formatted numeric record
+  and strict new/legacy collector schemas also pass. Independent review is clear.
+  These are implementation checks, not physical RF/voice performance evidence.
+- The source package includes the Linux bridge's one-line TCP_NODELAY setting.
+  A real loopback socket check observed the option change from 0 to 1 on health,
+  status, Usage and unauthenticated responses, preserving 200/401 behavior. The
+  Linux owner reported deployment and an isolated header-to-body wait reduction
+  from 40.894 ms to 0.046 ms; this does not establish device improvement. The
+  existing three-second socket timeout, TLS/hostname verification and auth remain.
+- Existing client TCP_NODELAY, capture-only awake Wi-Fi and exact prior power-mode
+  restoration remain. Restoration failure blocks finish and retains bounded
+  recovery. Cancellation, volume, target preferences, task browsing, reminders,
+  wake/setup handling and phase-based audio cleanup are retained and source-tested.
+- The unchanged UI previously rendered all 42 states at 240x320 with cached LVGL
+  9.5 and the device's 24 KiB pool. CI renders this publication again. Physical
+  button/display/battery acceptance and saved target across reboot remain open.
+  Tasks are limited to twelve device-scoped Pocket tasks, with a 768-byte UTF-8
+  device preview and 8000-byte serialized host response bound. Todo has no
+  supported read-only source. Real Usage feeds remain unconfigured.
+- Target-scoped TLS/verify/heap, status, capture reason/queue and Usage decode
+  diagnostics contain numeric metadata only. No credentials, audio, transcripts,
+  reply bodies or actual account allowance values are logged. Validation did not
+  start a recording or spend model/speech allowance. No credentials, provider
+  permission, router/Tailscale, authentication or TLS policy changed here.
+- Publication uses the existing feature PR. Firmware flash and source publication
+  are separate from any remote bridge deployment. Main merge is not approved.
 
-This source package contains no firmware binaries, deployment receipts, raw logs,
-runtime configurations or provider credentials. Actions records provide the
-published commit's Linux/offline and firmware CI evidence.
+This source package contains no binaries, private deployment receipts, raw logs,
+runtime configurations or provider credentials. Actions associated with the PR
+head provide the exact publication's Linux/offline and firmware CI evidence.
 
 ## Historical records
 

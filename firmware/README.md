@@ -42,8 +42,7 @@ Release the wake button, then use a fresh press to interact normally.
 
 The combined controls/debug firmware passed ESP-IDF compilation, app-only flashing
 at 0x10000 and independent flash verification. Boot reached app_main, reported
-Linux status HTTP 200; successful Usage decoding was established on the preceding
-controls build, with unchanged Usage sources.
+Linux status HTTP 200 and successfully decoded all unconfigured Usage providers.
 No fatal errors or Wi-Fi drops were observed in the bounded check. Settings
 partitions were not written. This does not establish visual, battery-accuracy, button or voice
 acceptance. See `../docs/DEVICE-UI-ACCEPTANCE.md` for that checklist.
@@ -65,11 +64,14 @@ The transport candidate enables TCP_NODELAY and temporarily requests an awake
 Wi-Fi radio while capturing/uploading, then restores its exact previous power
 mode before finish/provider waits and on failures. Failed restoration retains
 the original mode for worker recovery and blocks finish. The four-frame queue
-and 22,000-byte audio budget are unchanged. Slow-chunk diagnostics report numeric
-connection, headers-sent and first-response timing; body write and server wait
-are combined in the latter span. The preceding build's owner recording overflowed
-its queue during a 1,175 ms upload. Physical upload improvement and a complete
-voice round trip on the candidate still require an owner-triggered recording.
+and 22,000-byte audio budget are unchanged. Successful reused chunks no longer
+walk the heap or print per-chunk diagnostics. Boundary/failure measurements
+remain; a deferred numeric summary reports common-origin HTTP phases and
+separate heap/perform/callback/wrapper JSON/logging costs. Presence flags mark
+skipped measurements. SDK perform includes transport and scheduling/event waits;
+these logs do not establish a unique physical root cause. The preceding owner
+recording still overflowed its queue with a 246 ms maximum upload. Physical
+improvement and a complete voice round trip require an owner-triggered recording.
 Audio queues, buffers and the recorder task are allocated only after STT and
 held-button checks, then released after capture/use. Status polling keeps its
 connection/response buffers without reserving inactive audio memory needed by TLS.

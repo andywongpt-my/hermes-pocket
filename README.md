@@ -4,7 +4,7 @@ Open-source FoloToy AI Passport companion for Windows and Linux Hermes Agent.
 MIT application code, copyright 2026 Andy Wong. Independent community project,
 not an official FoloToy or NousResearch product.
 
-## Current milestone: controls and voice transport candidate
+## Current milestone: controls and voice timing candidate
 
 Built for ESP32-C3, 8 MB flash, no PSRAM, and ESP-IDF 5.5.3. The firmware adds
 connection diagnostics, saved target selection, bounded Pocket task browsing,
@@ -13,8 +13,7 @@ cat, battery gauge, phone setup and voice client.
 
 The combined controls, debug and voice transport build passed app-only flash/readback and a
 bounded physical boot check: Linux status returned authenticated HTTP 200.
-The prior controls build established Usage decoding with feeds unconfigured.
-This candidate boot did not record a successful Usage decode.
+Usage decoded successfully with all three account feeds unconfigured.
 No Linux failures, fatal errors or Wi-Fi drops were observed in that window.
 NVS pairing, the bootloader and partition table were preserved. Exact source,
 hashes and acceptance limits are recorded in [verification](docs/VERIFICATION.md).
@@ -28,7 +27,10 @@ report does not establish successful microphone capture or a complete voice
 round trip. An owner recording on the preceding build filled the four-frame audio
 queue during a slow upload. The candidate uses TCP_NODELAY and an awake Wi-Fi
 radio during capture/upload, then restores the prior power mode. Its queue and
-memory budget are unchanged. Physical upload improvement, end-to-end voice and
+memory budget are unchanged. Successful reused audio chunks now skip heap scans
+and per-chunk logs; one deferred numeric summary separates request phases and
+local diagnostic/JSON costs. The bridge also enables TCP_NODELAY. These changes
+passed implementation checks; physical upload improvement, end-to-end voice and
 button/display acceptance remain open.
 Tests use synthetic providers and do not spend model or speech allowance.
 Tailscale and router deployment are outside this firmware increment.
