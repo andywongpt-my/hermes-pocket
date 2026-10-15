@@ -267,9 +267,12 @@ void pocket_ui_render(const pocket_ui_view *v) {
  const unsigned page=v->setup_active?POCKET_PAGE_COUNT:(unsigned)v->page;
  if(page!=active_page){active_page=page;lv_obj_invalidate(dots);}
 
+ /* Voice activity wins so a press always gets a reaction; otherwise the cat
+  * sleeps whenever Hermes is offline, on every page that shows it. */
+ const bool active=v->page==POCKET_CHAT&&v->voice_here&&(v->busy||v->recording||v->playing);
  cat_mood next=CAT_IDLE;
- if(v->page==POCKET_CHAT&&v->voice_here)next=v->recording?CAT_LISTENING:v->playing?CAT_SPEAKING:v->busy?CAT_THINKING:CAT_IDLE;
- else if(v->page==POCKET_SCREEN_OFF||(v->page==POCKET_STATUS&&!v->online))next=CAT_SLEEPY;
+ if(active)next=v->recording?CAT_LISTENING:v->playing?CAT_SPEAKING:CAT_THINKING;
+ else if(v->page==POCKET_SCREEN_OFF||!v->online)next=CAT_SLEEPY;
  if(next!=mood){mood=next;frame=0;lv_obj_invalidate(cat);}
  show(cat,!v->setup_active&&v->page!=POCKET_USAGE);
  show(rows,false);show(bubble,false);show(body,false);show(note,false);show(off_option,false);
@@ -281,8 +284,9 @@ void pocket_ui_render(const pocket_ui_view *v) {
   lv_label_set_text(footer,"Finish setup on your phone");return;
  }
  if(v->page==POCKET_CHAT){
-  set_badge(!v->voice_here?"READY TO CHAT":v->recording?"LISTENING":v->playing?"SPEAKING":v->busy?"THINKING":"LET'S TALK",
-            !v->voice_here?MINT:v->recording?CORAL:v->playing?SKY:v->busy?AMBER:MINT,154);
+  if(!active&&!v->online)set_badge("HERMES OFFLINE",SLATE,154);
+  else set_badge(!v->voice_here?"READY TO CHAT":v->recording?"LISTENING":v->playing?"SPEAKING":v->busy?"THINKING":"LET'S TALK",
+                 !v->voice_here?MINT:v->recording?CORAL:v->playing?SKY:v->busy?AMBER:MINT,154);
   show(bubble,true);
   const bool has_text=v->voice_here&&v->text&&v->text[0];
   show(heard,has_text);if(has_text)lv_label_set_text_fmt(heard,"You: %.100s",v->text);

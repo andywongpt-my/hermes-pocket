@@ -22,7 +22,7 @@ class FirmwareHostTests(unittest.TestCase):
         if not compiler or not lvgl:self.skipTest('host C compiler or LVGL_DIR (LVGL 9.5 source) unavailable')
         root=pathlib.Path(__file__).resolve().parents[1]/'firmware'
         include=['-DLV_CONF_INCLUDE_SIMPLE','-I'+str(root/'tests'),'-I'+lvgl,'-I'+str(root/'main'),'-I'+str(root/'core')]
-        names=['home','home-offline','chat-ready','chat-listening','chat-thinking','chat-speaking','chat-error','usage','screen','setup']
+        names=['home','home-offline','chat-ready','chat-listening','chat-thinking','chat-speaking','chat-error','chat-offline','usage','screen','setup']
         with tempfile.TemporaryDirectory() as temp:
             out=os.environ.get('POCKET_SNAPSHOT_DIR') or temp
             subprocess.run([compiler,'-c','-std=c11','-O1','-Wall','-Wextra','-Werror',*include,str(root/'main/pocket_ui.c'),str(root/'tests/ui_snapshot.c')],cwd=temp,check=True,capture_output=True)

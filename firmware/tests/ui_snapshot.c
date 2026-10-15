@@ -55,6 +55,7 @@ int main(int argc,char **argv){
  v=base;v.page=POCKET_CHAT;v.voice_here=v.busy=v.playing=true;v.message="Speaking (OK to stop)";v.text="What's the weather in Kuala Lumpur today?";
  v.reply="It's sunny and 31 degrees, with a chance of thunderstorms after 4pm. Bring an umbrella!";failed|=shot(out,"chat-speaking",v,240);
  v=base;v.page=POCKET_CHAT;v.voice_here=true;v.message="Wi-Fi offline; hold OK on Status";failed|=shot(out,"chat-error",v,240);
+ v=base;v.page=POCKET_CHAT;v.online=false;failed|=shot(out,"chat-offline",v,600);
  v=base;v.page=POCKET_USAGE;v.battery_percent=-1;failed|=shot(out,"usage",v,240);
  v=base;v.page=POCKET_SCREEN_OFF;failed|=shot(out,"screen",v,600);
  v=base;v.setup_active=true;v.ssid="HermesPocket-4F2A";v.password="cat-nap-4821";failed|=shot(out,"setup",v,240);

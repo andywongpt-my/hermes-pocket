@@ -10,7 +10,8 @@ checks below and end-to-end bridge/voice validation remain pending.
 - Home, Chat and Screen show the animated tabby cat. Compare its moods with the
   CI `ui-snapshots` artifact: idle on Home/Chat, ears up while recording, a
   thought bubble while waiting, a chattering mouth during playback, and asleep
-  with drooped ears when Hermes is offline or on the Screen page.
+  with drooped ears when Hermes is offline (Chat then shows HERMES OFFLINE) or
+  on the Screen page. Holding OK still wakes it into the listening mood.
 - Confirm the animation looks smooth and that buttons, recording and playback
   stay responsive while it runs. It redraws only the cat area, about 8 times a
   second, and stops while the screen is off.
