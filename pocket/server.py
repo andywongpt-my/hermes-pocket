@@ -1,0 +1,182 @@
+"""Private bridge candidate with authenticated, bounded HTTP/TLS routes."""
+import argparse
+import hmac
+import json
+import socket
+import ssl
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
+from urllib.parse import urlsplit, parse_qs
+from .schema import decode, ProtocolError, MAX_FRAME, identifier
+from .store import Store, Conflict, NotFound, InvalidTransition
+from .service import Service, FakeHermes
+from .chat import ChatService
+from .audio import AudioError
+from .voice_jobs import VoiceJobs
+from .linux_voice import decode_speech_pcm
+from .transport import unique
+
+
+def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,decoder=decode_speech_pcm):
+    if host!='127.0.0.1' and (not tls or host in ('0.0.0.0','::')):raise ValueError('LAN ingress requires TLS and a specific interface address')
+    if not tokens or any(not isinstance(k,str) or not k for k in tokens):raise ValueError('authentication required')
+    # Multi-target mode has no implicit default or mutable global selection.
+    targets=dict(service) if isinstance(service,dict) else {'default':service}
+    legacy=not isinstance(service,dict)
+    if not targets:raise ValueError('at least one target required')
+    identities=set()
+    for name,svc in targets.items():
+        identifier(name)
+        filename=svc.store.db.execute('PRAGMA database_list').fetchone()[2]
+        identity=filename or id(svc.store)
+        if identity in identities:raise ValueError('each target requires a separate database')
+        identities.add(identity)
+    chats={name:ChatService(svc) for name,svc in targets.items()}
+    voices={name:VoiceJobs(chat,(speech or {}).get(name),decode=decoder) for name,chat in chats.items()}
+    tokens=dict(tokens)
+    for device in tokens.values():identifier(device)
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version="HTTP/1.1"
+        def log_message(self,*args):pass # No paths, headers or content in logs.
+        def setup(self):
+            super().setup();self.connection.settimeout(3)
+            if isinstance(self.connection,ssl.SSLSocket):self.connection.do_handshake()
+        def respond(self,code,value):
+            body=json.dumps(value,ensure_ascii=False,allow_nan=False).encode()
+            self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8')
+            self.send_header('Content-Length',str(len(body)));self.send_header('Cache-Control','no-store')
+            self.close_connection=not (200<=code<300 and getattr(self,'body_consumed',False))
+            self.send_header('Connection','close' if self.close_connection else 'keep-alive');self.end_headers();self.wfile.write(body)
+        def dispatch(self):
+            self.body_consumed=False
+            try:
+                auth=self.headers.get('Authorization','');device=None
+                for token,name in tokens.items():
+                    if hmac.compare_digest(auth.encode(),('Bearer '+token).encode()):device=name
+                if device is None:return self.respond(401,{'error':'unauthorized'})
+                if self.headers.get('Transfer-Encoding'):return self.respond(400,{'error':'unsupported transfer encoding'})
+                lengths=self.headers.get_all('Content-Length',[])
+                if len(lengths)>1:return self.respond(400,{'error':'duplicate content length'})
+                try:length=int(lengths[0]) if lengths else 0
+                except ValueError:return self.respond(400,{'error':'invalid length'})
+                if length<0:return self.respond(400,{'error':'invalid length'})
+                if length>MAX_FRAME:return self.respond(413,{'error':'frame too large'})
+                raw=self.rfile.read(length) if length else b''
+                if len(raw)!=length:return self.respond(400,{'error':'incomplete body'})
+                self.body_consumed=True
+                parsed=urlsplit(self.path);parts=parsed.path.strip('/').split('/')
+                if self.command=='GET' and parsed.path=='/health':
+                    return self.respond(200,{'bridge':'ready','backend':'fake' if all(isinstance(s.backend,FakeHermes) for s in targets.values()) else 'hermes','production_ready':False})
+                if self.command=='GET' and parsed.path=='/targets':
+                    return self.respond(200,{'targets':list(targets),'default_target':'default' if legacy else None})
+                route=parsed.path
+                if len(parts)>=2 and parts[0]=='targets':
+                    target=identifier(parts[1])
+                    if target not in targets:return self.respond(404,{'error':'unknown target'})
+                    selected=targets[target]
+                    parts=parts[2:];route='/'+('/'.join(parts))
+                elif legacy:target='default';selected=targets[target]
+                else:return self.respond(400,{'error':'explicit target required'})
+                if self.command=='GET' and route=='/status':
+                    try:
+                        selected.backend.check() if hasattr(selected.backend,'check') else None
+                        available=True
+                    except Exception:available=False
+                    return self.respond(200,{'target':target,'backend':'available' if available else 'unavailable','voice':voices[target].capabilities()})
+                if len(parts)>=2 and parts[0]=='audio':
+                    capture_id=identifier(parts[1]);voice=voices[target]
+                    if len(parts)==2 and self.command=='GET':return self.respond(200,voice.status(device,capture_id))
+                    if self.command=='POST':
+                        data=json.loads(raw,object_pairs_hook=unique)
+                        if not isinstance(data,dict):raise ProtocolError('invalid audio request')
+                        if len(parts)==2 and set(data)=={'chat_id'}:return self.respond(201,voice.begin(device,target,capture_id,identifier(data['chat_id'])))
+                        if len(parts)==3 and parts[2]=='chunk' and set(data)=={'sequence','data'}:return self.respond(200,voice.chunk(device,capture_id,data['sequence'],data['data']))
+                        if raw==b'{}' and len(parts)==3 and parts[2]=='finish':return self.respond(202,voice.finish(device,capture_id))
+                        if raw==b'{}' and len(parts)==3 and parts[2]=='abort':return self.respond(200,voice.abort(device,capture_id))
+                        raise ProtocolError('unsupported audio request')
+                if len(parts)==3 and parts[0]=='chats' and parts[2]=='messages':
+                    chat_id=identifier(parts[1])
+                    if self.command=='POST':return self.respond(202,chats[target].submit(device,chat_id,decode(raw)))
+                    if self.command=='GET':return self.respond(200,chats[target].transcript(device,chat_id))
+                if self.command=='GET' and route=='/usage':
+                    return self.respond(200,[{'provider':p,'availability':'not_configured','value':None,'fetched_at':None,'source':None} for p in ('codex','claude','ollama_cloud')])
+                if self.command=='POST' and route=='/tasks':
+                    return self.respond(202,selected.submit(device,decode(raw)))
+                if self.command=='GET' and route=='/tasks':
+                    with selected.store.lock:
+                        rows=list(selected.store.db.execute('SELECT request_id,state,seq FROM tasks WHERE device=? ORDER BY rowid DESC LIMIT 12',(device,)))
+                    return self.respond(200,[dict(r) for r in rows])
+                if len(parts)>=2 and parts[0]=='tasks':
+                    rid=identifier(parts[1])
+                    if len(parts)==3 and parts[2]=='view' and self.command=='GET':
+                        task=selected.refresh(device,rid)
+                        text=task.get('result') or ''
+                        task['result']=text.encode()[:3000].decode('utf-8',errors='ignore')
+                        task['truncated']=len(text.encode())>3000
+                        if hasattr(selected.backend,'handoff') and task['run_id'] and task['state'] in ('awaiting_approval','unknown'):
+                            task['handoff']=selected.backend.handoff(task['run_id'])
+                        return self.respond(200,task)
+                    if len(parts)==3 and parts[2]=='speech':
+                        if self.command=='POST' and raw==b'{}':return self.respond(202,voices[target].speak(device,rid))
+                        if self.command=='GET':return self.respond(200,voices[target].speech_status(device,rid))
+                    if len(parts)==5 and parts[2:4]==['speech','chunks'] and self.command=='GET':
+                        return self.respond(200,voices[target].playback_chunk(device,rid,int(parts[4])))
+                    if len(parts)==2 and self.command=='GET':return self.respond(200,selected.refresh(device,rid))
+                    if len(parts)==3 and parts[2]=='events' and self.command=='GET':
+                        q=parse_qs(parsed.query);values=q.get('after',['0'])
+                        if len(values)!=1:raise ProtocolError('invalid cursor')
+                        after=int(values[0])
+                        return self.respond(200,selected.store.events(device,rid,after))
+                    if len(parts)==3 and parts[2]=='stop' and self.command=='POST':
+                        if raw!=b'{}':raise ProtocolError('stop requires empty object')
+                        return self.respond(200,selected.stop(device,rid))
+                return self.respond(404,{'error':'not found'})
+            except (ProtocolError,ValueError) as exc:
+                code=409 if isinstance(exc,(Conflict,InvalidTransition)) else 400
+                self.respond(code,{'error':'conflict' if code==409 else 'invalid request'})
+            except NotFound:self.respond(404,{'error':'not found'})
+            except (TimeoutError,socket.timeout):self.respond(504,{'error':'request timed out'})
+            except (BrokenPipeError,ConnectionResetError):pass
+            except Exception:self.respond(502,{'error':'backend unavailable'})
+        do_GET=dispatch
+        do_POST=dispatch
+    class BoundedServer(ThreadingHTTPServer):
+        daemon_threads=True
+        def __init__(self,*args):
+            self.slots=threading.BoundedSemaphore(8)
+            super().__init__(*args)
+        def process_request(self,request,address):
+            if not self.slots.acquire(blocking=False):
+                self.shutdown_request(request);return
+            try:super().process_request(request,address)
+            except BaseException:self.slots.release();raise
+        def process_request_thread(self,request,address):
+            try:super().process_request_thread(request,address)
+            finally:self.slots.release()
+        def server_close(self):
+            super().server_close()
+            for voice in voices.values():voice.close()
+    server=BoundedServer((host,port),Handler)
+    if tls:
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version=ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(tls['certificate'],tls['private_key'])
+        server.socket=context.wrap_socket(server.socket,server_side=True,do_handshake_on_connect=False)
+    return server
+
+
+def main():
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--demo',action='store_true',required=True)
+    p.add_argument('--two-targets',action='store_true',help='simulate separate Windows and Linux instances');p.add_argument('--db',default='pocket-demo.sqlite');p.add_argument('--port',type=int,default=8765);a=p.parse_args()
+    stores={name:Store(a.db+'.'+name) for name in ('windows','linux')} if a.two_targets else {'default':Store(a.db)}
+    for store in stores.values():store.recover()
+    services={name:Service(store,FakeHermes()) for name,store in stores.items()}
+    svc=services if a.two_targets else services['default']
+    server=make_server(svc,{'pocket-demo-only':'demo-device'},port=a.port)
+    print(f'MOCK ONLY: http://127.0.0.1:{server.server_port}; public demo token: pocket-demo-only',flush=True)
+    try:server.serve_forever()
+    except KeyboardInterrupt:pass
+    finally:
+        server.server_close()
+        for store in stores.values():store.close()
+if __name__=='__main__':main()

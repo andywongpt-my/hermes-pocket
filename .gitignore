@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.sqlite*
+*.db*
+.env
+.venv/
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/sdkconfig.old

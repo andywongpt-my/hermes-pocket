@@ -1,0 +1,75 @@
+HISTORICAL PREVIEW ONLY: These instructions describe an older setup-only image.
+Do not use its merged-image command for current deployments. Current source uses
+app-only deployment at 0x10000 with the existing compatible partition layout,
+preserving NVS. Follow the current release manifest and firmware/README.md.
+
+HERMES POCKET — SETUP/UI PREVIEW, 14 October 2026
+
+IMPORTANT: This is a successfully compiled, merged ESP32-C3 firmware image,
+not the completed voice assistant. It implements the new Status / Chat / Usage
+screens, Windows/Linux selector, Wi-Fi joining and phone-assisted setup. The
+Chat and Usage screens remain unavailable placeholders. Live Hermes requests,
+voice recording/playback and account usage are NOT connected in this firmware.
+Do not replace a working device expecting those functions yet.
+
+Target ONLY: FoloToy AI Passport, ESP32-C3, 8 MB flash, matching the pinned BSP.
+No real device was connected, flashed or tested by the assistant. The owner
+performs device testing. Compile/link, image metadata and merged segment
+integrity were checked. See MANIFEST.json and APP-IMAGE-INFO.txt.
+
+FLASHING
+Use Espressif's official esptool. If you already have it installed, use that.
+Official documentation: https://docs.espressif.com/projects/esptool/en/latest/esp32c3/
+With Python installed, install esptool 4.12.0 using:
+  python -m pip install esptool==4.12.0
+
+Connect the device with a data-capable USB cable. Identify its actual serial
+port in your operating system; replace PORT below (for example COM7 on Windows).
+Do not guess another device's port. Close any serial monitor using that port.
+
+Factory merged image:
+  python -m esptool --chip esp32c3 --port PORT -b 460800 write_flash --flash_mode dio --flash_size 8MB --flash_freq 80m 0x0 full.bin
+
+CAUTION: full.bin includes blank padding across the NVS region. Flashing it
+replaces the existing application and can erase stored device/Wi-Fi settings.
+There is no need to run erase_flash. Use the separate-image method below if you
+want to avoid writing into the NVS gap, while noting that an existing unrelated
+application's configuration/partition layout may not be compatible:
+  python -m esptool --chip esp32c3 --port PORT -b 460800 write_flash --flash_mode dio --flash_size 8MB --flash_freq 80m 0x0 bootloader.bin 0x8000 partition-table.bin 0x10000 hermes-pocket.bin
+
+If automatic bootloader entry fails, use the board manufacturer's documented
+bootloader procedure for your revision. Do not guess boot-button combinations.
+
+PHONE SETUP
+1. On first boot without valid saved configuration, setup starts automatically.
+   To reopen it later, hold OK. UP/DOWN changes pages; OK on Status switches host.
+2. On your phone, join the Pocket-XXXX Wi-Fi network shown on the device. Use the
+   temporary password shown on its screen. This network has no Internet access;
+   stay connected if your phone asks.
+3. Open http://192.168.4.1 in the phone browser. This is a local setup page on the
+   device, not a cloud page. HTTP transport is confined to the WPA2-protected
+   setup Wi-Fi interface; no provider API keys should be entered.
+4. Enter your normal 2.4 GHz Wi-Fi name (1–31 UTF-8 bytes) and WPA2-compatible
+   password (8–63 bytes). Optional Windows/Linux HTTPS bridge addresses can be
+   saved now or left blank. These are bridge addresses, not provider API keys.
+5. Save and restart. Rejoin your normal Wi-Fi on the phone. Status shows Wi-Fi
+   connection state. The saved bridge addresses are not yet used for live chat.
+6. The setup network expires after five minutes. Hold OK again if needed.
+
+PRIVACY / LIMITATIONS
+Wi-Fi credentials and addresses are stored locally in ordinary NVS; this build
+has not enabled encrypted flash/NVS. Keep physical access to the device trusted.
+Settings are not uploaded to a cloud service, echoed in the setup page or logged
+by application code. Setup accepts one phone at a time and requires its displayed
+Wi-Fi password plus the page's short-lived request nonce. The HTTP settings server
+rejects access through the normal station/LAN interface. WPA2-PMF compatibility,
+phone behavior, Wi-Fi range, display/button behavior and hardware stability are
+for owner testing; no hardware validation claim is made.
+
+BUILD
+ESP-IDF v5.5.3, ESP32-C3; pinned FoloToy BSP a9320ab6eaa21b90759a4a22d1039092385f24dd.
+Application size: 1,250,656 bytes; partition: 8,323,072 bytes (85% free).
+The unused OpenThread SDK submodule remained at a different checkout revision,
+so the embedded SDK version is marked dirty; ESP32-C3 firmware does not enable
+OpenThread. Linked dependencies are recorded in the source dependency lock.
+Third-party license texts are included in licenses/.

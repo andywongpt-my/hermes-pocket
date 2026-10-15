@@ -1,0 +1,70 @@
+# Integrated firmware candidate
+
+Target: FoloToy AI Passport, ESP32-C3, 8 MB flash, no PSRAM.
+Toolchain: official ESP-IDF 5.5.3 with pinned managed components.
+The cat/battery/screen-standby increment has been built and app-only flashed.
+Validation status for this increment is listed below.
+
+UP/DOWN changes Home / Chat / Usage / Screen pages. On Home, click OK to select
+Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
+speak, then release to send. Press OK while waiting or playing to stop waiting or
+playback. This does not cancel a task already running in Hermes. Approval-required
+or uncertain outcomes direct the owner to the trusted Hermes interface.
+
+The source UI now uses a cartoon cat and a header battery percentage read from
+the board's CW2017 fuel gauge. `N/A` means the gauge could not initialize or its
+latest reading failed; there is no voltage-derived or placeholder percentage.
+Readings refresh every 30 seconds in a separate low-priority task. Failed gauge
+initialization is retried there, without blocking button handling. The first
+initialization attempt finishes before button callbacks are enabled. If the
+monitor task cannot start, the UI shows `N/A` instead of retaining a stale value.
+The gauge uses the BSP's existing battery
+profile, so accuracy still depends on the correct cell/profile for this board.
+
+Select Screen with UP/DOWN, then click OK on Screen off. This turns off the
+backlight and stops periodic UI redraws while keeping Wi-Fi and existing jobs
+running. It is not deep sleep. Press any button to restore the display. The
+entire wake hold/release and delayed click are ignored, so waking cannot select
+an agent, enter setup, record audio, change page or immediately turn off again.
+Release the wake button, then use a fresh press to interact normally.
+
+The cat/battery/standby firmware passed ESP-IDF compilation, app-only flashing
+at 0x10000 and independent flash verification. Boot reached app_main, detected
+CW2017 and showed no observed panic or driver errors. Settings partitions were
+not written. This does not establish visual, battery-accuracy, button or voice
+acceptance. See `../docs/DEVICE-UI-ACCEPTANCE.md` for that checklist.
+
+First boot without saved Wi-Fi starts phone setup. Join the displayed temporary
+Wi-Fi using its random password, open http://192.168.4.1, and enter Wi-Fi settings,
+bridge HTTPS addresses, dedicated Pocket token and optionally the bridge CA PEM.
+The setup window lasts five minutes, supports one phone, and rejects requests
+received via the ordinary station interface. Saving restarts the device.
+
+NVS settings are not encrypted. Keep the device physically secure. Do not put
+provider/API/dashboard credentials on the device. Empty pairing token removes
+pairing. Earlier Wi-Fi/address settings migrate without erasing NVS.
+
+The client verifies TLS certificates/hostnames and waits for network time. It does
+not retry uncertain audio submissions. PCM recording is bounded to 30 seconds;
+slow network capture fails visibly instead of silently discarding speech frames.
+Transcription and reply synthesis happen through the configured host bridge.
+Both targets may use the Linux voice service, but chat/task state stays separate.
+
+Known limits: hardware acceptance is the owner's responsibility; source-level
+integration is not proof of live compatibility. Verify STT configuration on the
+chosen host. Usage sources are not connected. The bundled font covers
+common CJK glyphs only. This candidate does not provide a complete on-device task
+browser, approval UI or full transcript paging. Replies are bounded on screen;
+complete history remains on the bridge/Hermes host.
+
+Build in an activated official ESP-IDF 5.5.3 environment:
+
+    idf.py set-target esp32c3
+    idf.py build
+
+Do not overwrite a working installation assuming all V1 features are complete.
+Use candidate split images only; do not erase flash or write across the NVS gap.
+
+BSP: FoloToy/ai-passport commit a9320ab6eaa21b90759a4a22d1039092385f24dd,
+MIT notice retained. Dependencies and font notices are in ../docs/licenses and
+../docs/THIRD-PARTY-NOTICES.md.

@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const html=fs.readFileSync(process.argv[2],'utf8');
+const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const elements={};let handler;const el=id=>elements[id]||(elements[id]={value:'',textContent:'',disabled:false,hidden:false,addEventListener:(event,fn)=>{if(id==='setup'&&event==='submit')handler=fn},appendChild:()=>{},focus:()=>{},replaceChildren:()=>{}});
+const ctx={document:{getElementById:el,createElement:()=>({})},TextEncoder,AbortController,setTimeout,clearTimeout,fetch:async()=>({ok:true,json:async()=>({networks:[]})})};vm.createContext(ctx);vm.runInContext(script,ctx);
+assert(handler,'submit handler registered explicitly');
+const valid={ssid:'Home',password:'password123',windows:'',linux:'',token:'',ca:''};
+assert.equal(ctx.validateSettings(valid),'');
+assert.match(ctx.validateSettings({...valid,ssid:''}),/Wi-Fi/);
+assert.match(ctx.validateSettings({...valid,password:'123'}),/8/);
+assert.match(ctx.validateSettings({...valid,ssid:'猫'.repeat(11)}),/31/);
+assert.match(ctx.validateSettings({...valid,linux:'http://example.com'}),/HTTPS/);
+assert.match(ctx.validateSettings({...valid,token:'short'}),/32/);
+assert.match(ctx.validateSettings({...valid,ca:'bad'}),/certificate/);
+assert(!script.includes('innerHTML'),'SSID must never render as HTML');
+console.log('PASS setup UI validation and initialization');
