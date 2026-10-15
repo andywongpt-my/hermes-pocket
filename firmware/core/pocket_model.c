@@ -1,4 +1,5 @@
 #include "pocket_model.h"
+#include "pocket_usage.h"
 #include <string.h>
 void pocket_init(pocket_model *m) { memset(m,0,sizeof(*m)); }
 void pocket_connection(pocket_model *m,unsigned target,bool online) {
@@ -15,6 +16,8 @@ pocket_action pocket_press(pocket_model *m,pocket_button button) {
  if(m->recording)return POCKET_NONE;
  if(button==POCKET_UP)m->page=(pocket_page)((m->page+POCKET_PAGE_COUNT-1)%POCKET_PAGE_COUNT);
  if(button==POCKET_DOWN)m->page=(pocket_page)((m->page+1)%POCKET_PAGE_COUNT);
+ /* 12 is the common cycle for all supported counts (one through four). */
+ if(button==POCKET_OK && m->page==POCKET_USAGE)m->usage_window=(m->usage_window+1)%12;
  if(button==POCKET_OK && m->page==POCKET_CHAT && m->connected[m->target] && !m->submitting) {
   m->recording=true;m->recording_target=m->target;return POCKET_START_RECORDING;
  }

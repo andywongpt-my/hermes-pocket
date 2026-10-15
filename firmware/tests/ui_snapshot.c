@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <assert.h>
 
 #define W 240
 #define H 320
@@ -34,7 +35,25 @@ static int save(const char *directory,const char *name){
  printf("%s\n",path);return fclose(file)!=0;
 }
 static int shot(const char *directory,const char *name,pocket_ui_view view,uint32_t ms){
- pocket_ui_render(&view);advance(ms);return save(directory,name);
+ pocket_ui_render(&view);advance(ms);
+ /* Expanded Usage rows must fit inside the card. Returning Home restores the
+  * compact dimensions, with no collision with the badge or bottom controls. */
+ if(!view.setup_active&&(view.page==POCKET_USAGE||view.page==POCKET_STATUS)){
+  bool found=false;lv_obj_t *screen=lv_screen_active();
+  for(uint32_t i=0;i<lv_obj_get_child_count(screen);i++){
+   lv_obj_t *child=lv_obj_get_child(screen,(int32_t)i);
+   if(lv_obj_has_flag(child,LV_OBJ_FLAG_HIDDEN)||lv_obj_get_x(child)!=20||lv_obj_get_width(child)!=200)continue;
+   const bool usage=view.page==POCKET_USAGE;
+   assert(lv_obj_get_y(child)==(usage?94:182));assert(lv_obj_get_height(child)==(usage?168:76));found=true;
+  }
+  assert(found);
+ }
+ return save(directory,name);
+}
+static pocket_usage_metric metric(double value,pocket_usage_unit unit,pocket_usage_category category,unsigned minutes,int64_t now){
+ return (pocket_usage_metric){.has_value=true,.value=value,.unit=unit,.category=category,.window_minutes=minutes,
+  .has_fetched_at=true,.fetched_at=now-120,.has_resets_at=true,.resets_at=now+7200,
+  .has_expires_at=true,.expires_at=now+60,.availability=POCKET_USAGE_AVAILABLE};
 }
 int main(int argc,char **argv){
  const char *out=argc>1?argv[1]:".";
@@ -57,6 +76,28 @@ int main(int argc,char **argv){
  v=base;v.page=POCKET_CHAT;v.voice_here=true;v.message="Wi-Fi offline; hold OK on Status";failed|=shot(out,"chat-error",v,240);
  v=base;v.page=POCKET_CHAT;v.online=false;failed|=shot(out,"chat-offline",v,600);
  v=base;v.page=POCKET_USAGE;v.battery_percent=-1;failed|=shot(out,"usage",v,240);
+ /* Fully synthetic account samples: no private account or provider reads. */
+ const int64_t now=1800000000;pocket_usage_snapshot usage={0};
+ for(unsigned i=0;i<POCKET_USAGE_PROVIDER_COUNT;i++)usage.providers[i].availability=POCKET_USAGE_AVAILABLE;
+ usage.providers[0].metric_count=2;
+ usage.providers[0].metrics[0]=metric(26,POCKET_USAGE_PERCENT_USED,POCKET_USAGE_SUBSCRIPTION,300,now);
+ usage.providers[0].metrics[1]=metric(72.5,POCKET_USAGE_PERCENT_REMAINING,POCKET_USAGE_SUBSCRIPTION,10080,now);
+ usage.providers[1].metric_count=1;
+ usage.providers[1].metrics[0]=metric(0,POCKET_USAGE_PERCENT_REMAINING,POCKET_USAGE_SUBSCRIPTION,10080,now);
+ usage.providers[2].metric_count=2;
+ usage.providers[2].metrics[0]=metric(12.34,POCKET_USAGE_USD_CREDIT,POCKET_USAGE_INCLUDED_CREDIT,43200,now);
+ usage.providers[2].metrics[1]=metric(45.67,POCKET_USAGE_USD_CREDIT,POCKET_USAGE_PURCHASED_CREDIT,0,now);
+ v=base;v.page=POCKET_USAGE;v.usage=&usage;v.now=now;failed|=shot(out,"usage-available",v,240);
+ v.usage_window=1;failed|=shot(out,"usage-next-window",v,240);
+ v.usage_window=0;usage.providers[0].metrics[0].value=0;usage.providers[1].metrics[0].has_value=false;
+ usage.providers[2].metric_count=0;usage.providers[2].availability=POCKET_USAGE_NOT_CONFIGURED;
+ failed|=shot(out,"usage-null-zero",v,240);
+ usage.providers[0].metrics[0].value=83;usage.providers[0].metrics[0].expires_at=now;
+ usage.providers[1].availability=POCKET_USAGE_PARTIAL;usage.providers[1].metrics[0].has_value=true;usage.providers[1].metrics[0].value=1.25;
+ usage.providers[2].availability=POCKET_USAGE_FAILED;usage.providers[2].metric_count=1;
+ usage.providers[2].metrics[0]=metric(3.4,POCKET_USAGE_USD_CREDIT,POCKET_USAGE_PURCHASED_CREDIT,0,now);
+ failed|=shot(out,"usage-stale-partial-failed",v,240);
+ v=base;failed|=shot(out,"home-after-usage",v,240);
  v=base;v.page=POCKET_SCREEN_OFF;failed|=shot(out,"screen",v,600);
  v=base;v.setup_active=true;v.ssid="HermesPocket-4F2A";v.password="cat-nap-4821";failed|=shot(out,"setup",v,240);
  return failed;

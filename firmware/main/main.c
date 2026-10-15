@@ -3,6 +3,7 @@
 #include "pocket_setup.h"
 #include "pocket_voice.h"
 #include "pocket_ui.h"
+#include "pocket_usage_client.h"
 #include "bsp_i2c.h"
 #include "bsp_display.h"
 #include "bsp_button.h"
@@ -14,6 +15,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include <stdatomic.h>
+#include <time.h>
 
 typedef struct { bsp_btn_t button; bsp_btn_ev_t event; } input;
 static QueueHandle_t events;
@@ -40,8 +42,9 @@ static void monitor_battery(void *unused) {
 static void render(void) {
  pocket_setup_state setup;pocket_setup_read(&setup);
  static pocket_voice_state voice;pocket_voice_read(&voice);
+ static pocket_usage_snapshot usage;pocket_usage_read(model.target,&usage);
  const pocket_ui_view view={
-  .page=model.page,.target=model.target,
+  .page=model.page,.target=model.target,.usage=&usage,.usage_window=model.usage_window,.now=(int64_t)time(NULL),
   .battery_percent=atomic_load_explicit(&battery_percent,memory_order_relaxed),
   .setup_active=setup.active,.wifi_connected=setup.wifi_connected,
   .online=voice.online[model.target],.speech_ready=voice.speech_ready[model.target],
@@ -131,6 +134,7 @@ void app_main(void) {
   pocket_setup_state current_setup;pocket_setup_read(&current_setup);
   if(value.button==BSP_BTN_OK && model.page==POCKET_SCREEN_OFF && !current_setup.active){enter_screen_off();continue;}
   if(value.button==BSP_BTN_OK && model.page==POCKET_STATUS){pocket_voice_state current;pocket_voice_read(&current);if(!current.busy)pocket_select(&model,1-model.target);}
+  else if(value.button==BSP_BTN_OK && model.page==POCKET_USAGE && !current_setup.active)pocket_press(&model,POCKET_OK);
   else if(value.button==BSP_BTN_UP)pocket_press(&model,POCKET_UP);
   else if(value.button==BSP_BTN_DOWN)pocket_press(&model,POCKET_DOWN);
   redraw();

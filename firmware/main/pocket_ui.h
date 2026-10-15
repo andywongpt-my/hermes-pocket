@@ -3,10 +3,13 @@
 #pragma once
 #include <stdbool.h>
 #include "pocket_model.h"
+#include "pocket_usage.h"
 
 typedef struct {
  pocket_page page;
- unsigned target;
+ unsigned target,usage_window;
+ const pocket_usage_snapshot *usage;
+ int64_t now;
  int battery_percent; /* Negative when the gauge has no trustworthy reading. */
  bool setup_active, wifi_connected, online, speech_ready;
  bool voice_here, recording, playing, busy; /* voice_here: voice state belongs to target. */

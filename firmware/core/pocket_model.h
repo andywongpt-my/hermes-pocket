@@ -9,7 +9,7 @@ typedef enum { POCKET_NONE, POCKET_START_RECORDING, POCKET_SEND_AUDIO, POCKET_ST
 typedef enum { POCKET_IDLE, POCKET_QUEUED, POCKET_RUNNING, POCKET_APPROVAL, POCKET_DONE, POCKET_FAILED, POCKET_CANCELLED } pocket_task;
 typedef struct {
  pocket_page page;
- unsigned target, recording_target;
+ unsigned target, recording_target, usage_window;
  bool connected[2], recording, submitting, playing;
  uint32_t sequence[2], generation[2];
  pocket_task task[2];

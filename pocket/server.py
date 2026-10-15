@@ -5,6 +5,7 @@ import json
 import socket
 import ssl
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from urllib.parse import urlsplit, parse_qs
 from .schema import decode, ProtocolError, MAX_FRAME, identifier
@@ -15,11 +16,13 @@ from .audio import AudioError
 from .voice_jobs import VoiceJobs
 from .linux_voice import decode_speech_pcm
 from .transport import unique
+from .usage import UsageCache, PROVIDERS
 
 
-def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,decoder=decode_speech_pcm):
+def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,decoder=decode_speech_pcm,usage_cache=None):
     if host!='127.0.0.1' and (not tls or host in ('0.0.0.0','::')):raise ValueError('LAN ingress requires TLS and a specific interface address')
     if not tokens or any(not isinstance(k,str) or not k for k in tokens):raise ValueError('authentication required')
+    usage_cache=UsageCache() if usage_cache is None else usage_cache
     # Multi-target mode has no implicit default or mutable global selection.
     targets=dict(service) if isinstance(service,dict) else {'default':service}
     legacy=not isinstance(service,dict)
@@ -99,7 +102,8 @@ def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,de
                     if self.command=='POST':return self.respond(202,chats[target].submit(device,chat_id,decode(raw)))
                     if self.command=='GET':return self.respond(200,chats[target].transcript(device,chat_id))
                 if self.command=='GET' and route=='/usage':
-                    return self.respond(200,[{'provider':p,'availability':'not_configured','value':None,'fetched_at':None,'source':None} for p in ('codex','claude','ollama_cloud')])
+                    now=time.time()
+                    return self.respond(200,[usage_cache.report(target,p,now) for p in PROVIDERS])
                 if self.command=='POST' and route=='/tasks':
                     return self.respond(202,selected.submit(device,decode(raw)))
                 if self.command=='GET' and route=='/tasks':

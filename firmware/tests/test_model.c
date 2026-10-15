@@ -4,6 +4,7 @@
 int main(void) {
  pocket_model m; pocket_init(&m);
  assert(m.page==POCKET_STATUS && m.target==0 && !m.connected[0]);
+ assert(m.usage_window==0);
  assert(pocket_press(&m,POCKET_OK)==POCKET_NONE);
  pocket_connection(&m,0,true);
  assert(pocket_press(&m,POCKET_DOWN)==POCKET_NONE && m.page==POCKET_CHAT);
@@ -30,6 +31,17 @@ int main(void) {
  assert(pocket_update(&m,0,0,2,POCKET_DONE));
  assert(!pocket_update(&m,0,0,3,POCKET_RUNNING));
  pocket_new_task(&m,0);assert(!pocket_update(&m,0,0,99,POCKET_DONE));assert(pocket_update(&m,0,1,1,POCKET_QUEUED));
+ m.page=POCKET_USAGE;m.playing=false;
+ for(unsigned i=1;i<=24;i++){
+  assert(pocket_press(&m,POCKET_OK)==POCKET_NONE);
+  assert(m.usage_window%3==i%3 && m.usage_window%4==i%4 && m.page==POCKET_USAGE && !m.recording);
+  assert(pocket_release(&m,POCKET_OK)==POCKET_NONE);
+ }
+ pocket_press(&m,POCKET_OK);assert(m.usage_window==1);
+ pocket_press(&m,POCKET_UP);assert(m.page==POCKET_CHAT && m.usage_window==1);
+ pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_USAGE && m.usage_window==1);
+ pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_SCREEN_OFF && m.usage_window==1);
+ pocket_press(&m,POCKET_OK);assert(m.usage_window==1);
  for(int i=0;i<1000;i++) { pocket_press(&m,POCKET_DOWN); assert(m.page<POCKET_PAGE_COUNT); }
  puts("pocket model: PASS"); return 0;
 }

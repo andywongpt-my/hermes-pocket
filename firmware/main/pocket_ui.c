@@ -1,6 +1,8 @@
 /* Hermes Pocket MIT. Screen layout and animated cartoon cat in pure LVGL. */
 #include "pocket_ui.h"
 #include "lvgl.h"
+#include <stdio.h>
+#include <string.h>
 
 enum { BG=0x101C25, CARD=0x1A2C39, ROW=0x223847, LINE=0x3C5968, TEXT=0xF4F1E9, MUTED=0xB9CBD6,
        MINT=0x8FE3CB, CORAL=0xF3A88D, AMBER=0xF6C86B, SKY=0x8CC8F2, SLATE=0x6F8796 };
@@ -17,6 +19,8 @@ static unsigned frame,active_page;
 static int battery_level;
 typedef struct { const char *name,*value; uint32_t dot; } row_item;
 static row_item row_items[3];
+static pocket_usage_display usage_items[POCKET_USAGE_PROVIDER_COUNT];
+static bool expanded_rows;
 
 static lv_obj_t *shape(lv_obj_t *parent,int x,int y,int width,int height,uint32_t color,int radius) {
  lv_obj_t *obj=lv_obj_create(parent);lv_obj_remove_style_all(obj);lv_obj_set_pos(obj,x,y);lv_obj_set_size(obj,width,height);
@@ -172,6 +176,26 @@ static void text_at(int x1,int y1,int x2,const lv_font_t *font,const char *text,
  d.text=text;d.align=align;
  const lv_area_t area={ox+x1,oy+y1,ox+x2,oy+y1+19};lv_draw_label(layer,&d,&area);
 }
+static void usage_text(int x1,int y1,int x2,const char *text,uint32_t color,lv_text_align_t align) {
+ /* Keep optional long source labels on one line without drawing over the next
+  * provider or the page controls. All formatter output is bounded ASCII. */
+ char clipped[64];snprintf(clipped,sizeof clipped,"%s",text);
+ lv_point_t size;const lv_font_t *font=&lv_font_montserrat_14;
+ lv_text_get_size(&size,clipped,font,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+ if(size.x>x2-x1+1){
+  size_t length=strlen(clipped);
+  while(length){
+   clipped[--length]='\0';
+   char trial[68];snprintf(trial,sizeof trial,"%s...",clipped);
+   lv_text_get_size(&size,trial,font,0,0,LV_COORD_MAX,LV_TEXT_FLAG_NONE);
+   if(size.x<=x2-x1+1){snprintf(clipped,sizeof clipped,"%.63s",trial);break;}
+  }
+ }
+ /* Deferred draw tasks must own the clipped stack text until rendering ends. */
+ lv_draw_label_dsc_t d;lv_draw_label_dsc_init(&d);d.font=font;d.color=lv_color_hex(color);
+ d.text=clipped;d.text_local=1;d.align=align;
+ const lv_area_t area={ox+x1,oy+y1,ox+x2,oy+y1+19};lv_draw_label(layer,&d,&area);
+}
 static void draw_dots(lv_event_t *event) {
  begin(event);
  for(unsigned i=0,x=120-(14+6*3+8*3)/2;i<POCKET_PAGE_COUNT;i++){
@@ -191,6 +215,18 @@ static void draw_battery(lv_event_t *event) {
 static void draw_rows(lv_event_t *event) {
  begin(event);
  for(int i=0;i<3;i++){
+  if(expanded_rows){
+   const int y=i*56;
+   blob(0,y,199,y+52,12,ROW,0,LV_OPA_COVER);
+   blob(8,y+8,13,y+13,3,row_items[i].dot,0,LV_OPA_COVER);
+   usage_text(20,y+2,80,row_items[i].name,TEXT,LV_TEXT_ALIGN_LEFT);
+   usage_text(82,y+2,189,usage_items[i].value,TEXT,LV_TEXT_ALIGN_RIGHT);
+   usage_text(10,y+19,189,usage_items[i].detail,MUTED,LV_TEXT_ALIGN_LEFT);
+   const pocket_usage_availability state=usage_items[i].availability;
+   usage_text(10,y+36,189,usage_items[i].freshness,
+              state==POCKET_USAGE_FAILED?CORAL:state==POCKET_USAGE_STALE||state==POCKET_USAGE_PARTIAL?AMBER:MUTED,LV_TEXT_ALIGN_LEFT);
+   continue;
+  }
   const int y=i*26;
   blob(0,y,199,y+23,12,ROW,0,LV_OPA_COVER);
   blob(10,y+7,19,y+16,5,row_items[i].dot,0,LV_OPA_COVER);
@@ -212,7 +248,18 @@ static void set_badge(const char *text,uint32_t color,int y) {
 static void set_row(unsigned i,const char *name,const char *value,uint32_t dot) {
  row_items[i]=(row_item){name,value,dot};
 }
-static void show_rows(int y) {show(rows,true);lv_obj_set_y(rows,y);lv_obj_invalidate(rows);}
+static void show_rows(int y) {expanded_rows=false;show(rows,true);lv_obj_set_y(rows,y);lv_obj_set_height(rows,76);lv_obj_invalidate(rows);}
+static void show_usage_rows(const pocket_ui_view *view) {
+ static const char *providers[]={"Codex","Claude","Ollama"};
+ for(unsigned i=0;i<POCKET_USAGE_PROVIDER_COUNT;i++){
+  pocket_usage_format(view->usage?&view->usage->providers[i]:NULL,view->usage_window,view->now,&usage_items[i]);
+  const pocket_usage_availability state=usage_items[i].availability;
+  const uint32_t dot=state==POCKET_USAGE_AVAILABLE?MINT:state==POCKET_USAGE_FAILED?CORAL:
+                     state==POCKET_USAGE_STALE||state==POCKET_USAGE_PARTIAL?AMBER:SLATE;
+  set_row(i,providers[i],usage_items[i].value,dot);
+ }
+ expanded_rows=true;show(rows,true);lv_obj_set_y(rows,94);lv_obj_set_height(rows,168);lv_obj_invalidate(rows);
+}
 void pocket_ui_create(void) {
  lv_obj_t *screen=lv_obj_create(NULL);
  lv_obj_set_style_bg_color(screen,lv_color_hex(BG),0);
@@ -311,9 +358,6 @@ void pocket_ui_render(const pocket_ui_view *v) {
   lv_label_set_text(footer,"OK: screen off\nUP/DOWN: pages");return;
  }
  set_badge("ACCOUNT OVERVIEW",SKY,60);
- set_row(0,"Codex","Not set up",SLATE);
- set_row(1,"Claude","Not set up",SLATE);
- set_row(2,"Ollama","Not set up",SLATE);show_rows(94);
- show(note,true);lv_label_set_text(note,"Usage connections coming next.");
- lv_label_set_text(footer,"UP/DOWN: change page");
+ show_usage_rows(v);
+ lv_label_set_text(footer,"OK: next window\nUP/DOWN: pages");
 }
