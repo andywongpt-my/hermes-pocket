@@ -67,6 +67,7 @@ void cJSON_Delete(cJSON *);
 cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *,const char *);
 int cJSON_IsString(const cJSON *);
 int cJSON_IsTrue(const cJSON *);
+int cJSON_IsBool(const cJSON *);
 int cJSON_IsNumber(const cJSON *);
 ''',
 }
@@ -92,6 +93,7 @@ static int mode, command_reads, audio_attempts, status_calls, posts, queue_live,
 static int retained_capture, playback_calls, finish_calls, abort_calls, capture_reads;
 static int transport_failures,status_successes,http_closes;
 static int chunk_attempts;
+static int status_shape;
 static int64_t elapsed_ms,last_exchange_ms;
 static bool transport_open;
 static int usage_polls,usage_disconnects,json_live;
@@ -156,9 +158,14 @@ static cJSON submitted={"submitted",0,0,2}, completed={"completed",0,0,2}, ready
 static cJSON task_id={"fixture-task",0,0,2}, text={"synthetic",0,0,2}, chunk_data={"synthetic-pcm",0,0,2}, chunks={NULL,1,1,3};
 cJSON *cJSON_Parse(const char *text) { (void)text;json_live++;return &root; }
 void cJSON_Delete(cJSON *value) { if(value){assert(json_live>0);json_live--;} }
-cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if(mode!=8)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks"))return &chunks;if(!strcmp(key,"data"))return &chunk_data;return NULL; }
+static cJSON *fixture_item(const cJSON *value,const char *key) { (void)value;if(!strcmp(key,"backend"))return &available;if(!strcmp(key,"voice"))return &voice;if(!strcmp(key,"stt")){stt.type=mode>=2?1:0;return &stt;}if(!strcmp(key,"state")){if(mode!=8)return &failed;return strstr(endpoint,"/speech")?&ready:strstr(endpoint,"/tasks/")?&completed:&submitted;}if(!strcmp(key,"task_id"))return &task_id;if(!strcmp(key,"text") || !strcmp(key,"result"))return &text;if(!strcmp(key,"chunks"))return &chunks;if(!strcmp(key,"data"))return &chunk_data;return NULL; }
+cJSON *cJSON_GetObjectItemCaseSensitive(const cJSON *value,const char *key) {
+ if(status_shape && (!strcmp(key,"stt") || !strcmp(key,"tts")))return status_shape==1?NULL:&available;
+ return fixture_item(value,key);
+}
 int cJSON_IsString(const cJSON *value) { return value && value->type==2; }
 int cJSON_IsTrue(const cJSON *value) { return value && value->type==1; }
+int cJSON_IsBool(const cJSON *value) { return value && (value->type==0 || value->type==1); }
 int cJSON_IsNumber(const cJSON *value) { return value && value->type==3; }
 esp_err_t pocket_http_json(const char *origin,const char *path,const char *token,const char *ca,const char *body,char *out,size_t cap,pocket_http_result *result) {
  (void)origin;(void)token;(void)ca;assert(cap>=3);snprintf(endpoint,sizeof(endpoint),"%s",path);if(strstr(path,"/status"))status_calls++;if(body)posts++;
@@ -185,7 +192,7 @@ void pocket_usage_poll(unsigned target,const pocket_link_config *link,char *resp
 void pocket_usage_disconnected(unsigned target) { assert(target<2);usage_disconnects++; }
 static void reset(int value) {
  for(unsigned i=0;i<16;i++)if(allocations[i]){free(allocations[i]);allocations[i]=NULL;}
- mode=value;command_reads=audio_attempts=status_calls=posts=queue_live=recorder_tasks=record_active=packets=task_deletes=0;
+ mode=value;status_shape=0;command_reads=audio_attempts=status_calls=posts=queue_live=recorder_tasks=record_active=packets=task_deletes=0;
  retained_capture=playback_calls=finish_calls=abort_calls=capture_reads=0;audio_bytes=peak_audio_bytes=queue_bytes=record_stack=uploaded_bytes=playback_bytes=0;queue_head=queue_tail=0;endpoint[0]=0;
  transport_failures=status_successes=http_closes=chunk_attempts=0;elapsed_ms=last_exchange_ms=0;transport_open=false;
  usage_polls=usage_disconnects=json_live=0;usage_targets=0;
@@ -212,6 +219,10 @@ int main(int argc,char **argv) {
  CHECK(state.online[0] && !state.speech_ready[0],"STT-off bridge status did not remain available");
  CHECK(!strcmp(status_log,"target=0 http=200 backend_available=1 stt=0"),"status readiness evidence must be numeric-only");
  CHECK(usage_polls==1 && usage_targets==1 && !usage_disconnects,"idle Usage did not use the existing worker/client after status cleanup");
+ reset(0);status_shape=1;exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(!state.diagnostics[0].stt_known && !state.diagnostics[0].tts_known,"missing voice capabilities became known disabled flags");
+ reset(0);status_shape=2;exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(!state.diagnostics[0].stt_known && !state.diagnostics[0].tts_known,"non-boolean voice capabilities became known disabled flags");
  reset(10);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(status_calls==6 && status_successes==6 && !transport_failures && http_closes==6 && !transport_open,"status reused a connection after the bridge idle expiry");
  CHECK(state.online[0] && state.online[1] && state.speech_ready[0] && state.speech_ready[1],"fresh successful polls did not keep both target states ready");

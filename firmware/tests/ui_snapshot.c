@@ -102,7 +102,7 @@ int main(int argc,char **argv){
  v=base;v.page=POCKET_DIAGNOSTICS;v.diagnostics=&diagnostics;v.uptime_ms=12000;
  failed|=shot(out,"diag-unchecked",v,240);
  diagnostics=(pocket_diagnostics){.checked=true,.wifi=true,.utc_ready=true,.configured=true,.attempted=true,.heap_measured=true,
-  .response_valid=true,.backend_available=true,.stt=true,.tts=true,.custom_ca=true,
+  .response_valid=true,.backend_available=true,.stt=true,.tts=true,.stt_known=true,.tts_known=true,.custom_ca=true,
   .http_status=200,.free_heap=53052,.largest_block=40960,.checked_ms=1000};
  failed|=shot(out,"diag-ready",v,240);
  diagnostics.transport_error=-1;diagnostics.http_status=0;diagnostics.tls_error=0x801a;diagnostics.tls_code=0x2700;diagnostics.verify_flags=8;

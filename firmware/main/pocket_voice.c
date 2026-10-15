@@ -192,8 +192,9 @@ static void network(void *unused){
     if(error==ESP_OK && http_status==200){
      cJSON *j=cJSON_Parse(response);const char *backend=string(j,"backend");
      reachable=!strcmp(backend,"available") || !strcmp(backend,"unavailable");online=reachable && !strcmp(backend,"available");
-     cJSON *v=cJSON_GetObjectItemCaseSensitive(j,"voice");ready=reachable && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v,"stt"));
-     observed.tts=reachable && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v,"tts"));cJSON_Delete(j);
+     cJSON *v=cJSON_GetObjectItemCaseSensitive(j,"voice"),*stt=cJSON_GetObjectItemCaseSensitive(v,"stt"),*tts=cJSON_GetObjectItemCaseSensitive(v,"tts");
+     observed.stt_known=reachable && cJSON_IsBool(stt);observed.tts_known=reachable && cJSON_IsBool(tts);
+     ready=observed.stt_known && cJSON_IsTrue(stt);observed.tts=observed.tts_known && cJSON_IsTrue(tts);cJSON_Delete(j);
     }
    }
    observed.response_valid=reachable;observed.backend_available=online;observed.stt=ready;observed.checked_ms=esp_timer_get_time()/1000;

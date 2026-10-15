@@ -29,9 +29,11 @@ int main(void){
  d.http_status=503;pocket_diagnostics_format(&d,1000,false,title,sizeof(title),body,sizeof(body));CHECK(!strcmp(title,"HTTP FAILED"),"HTTP failure not classified");
  d.http_status=200;pocket_diagnostics_format(&d,1000,false,title,sizeof(title),body,sizeof(body));CHECK(!strcmp(title,"INVALID RESPONSE"),"malformed status became ready");
  d.response_valid=true;pocket_diagnostics_format(&d,1000,false,title,sizeof(title),body,sizeof(body));CHECK(!strcmp(title,"HERMES UNAVAILABLE"),"backend unavailable became ready");
- d.backend_available=true;d.stt=true;d.tts=false;d.free_heap=53052;d.largest_block=40960;
+ d.backend_available=true;d.stt=true;d.tts=false;d.stt_known=d.tts_known=true;d.free_heap=53052;d.largest_block=40960;
  pocket_diagnostics_format(&d,21000,false,title,sizeof(title),body,sizeof(body));
  CHECK(!strcmp(title,"HERMES AVAILABLE") && strstr(body,"STT yes / TTS no") && strstr(body,"53052 / 40960") && strstr(body,"Age 20s"),"fresh capabilities/heap/age not shown");
+ d.stt_known=d.tts_known=false;pocket_diagnostics_format(&d,21000,false,title,sizeof(title),body,sizeof(body));
+ CHECK(strstr(body,"STT ? / TTS ?"),"missing/non-boolean capabilities were presented as disabled");
  pocket_diagnostics_format(&d,47000,false,title,sizeof(title),body,sizeof(body));CHECK(!strcmp(title,"STATUS STALE"),"old success presented as current");
  pocket_diagnostics_format(&d,47000,true,title,sizeof(title),body,sizeof(body));CHECK(!strcmp(title,"POLLING PAUSED"),"voice pause confused with failure");
  pocket_diagnostics_format(&d,0,false,title,sizeof(title),body,sizeof(body));CHECK(!strcmp(title,"STATUS STALE"),"clock reversal presented fresh status");

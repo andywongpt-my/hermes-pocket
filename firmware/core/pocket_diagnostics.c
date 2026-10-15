@@ -23,7 +23,7 @@ void pocket_diagnostics_format(const pocket_diagnostics *value,int64_t now_ms,bo
  }
  const int64_t age=now_ms>=d->checked_ms?(now_ms-d->checked_ms)/1000:0;
  char capabilities[32]="Voice not checked",heap[48]="Heap not measured";
- if(d->response_valid)snprintf(capabilities,sizeof(capabilities),"STT %s / TTS %s",d->stt?"yes":"no",d->tts?"yes":"no");
+ if(d->response_valid)snprintf(capabilities,sizeof(capabilities),"STT %s / TTS %s",d->stt_known?(d->stt?"yes":"no"):"?",d->tts_known?(d->tts?"yes":"no"):"?");
  if(d->heap_measured)snprintf(heap,sizeof(heap),"Heap %u / %u",d->free_heap,d->largest_block);
  snprintf(body,body_capacity,
   "HTTP %d / ESP %d\nTLS %x / MB %x\nVerify %x / CA %s\n%s\n%s\nAge %" PRId64 "s (last poll)",

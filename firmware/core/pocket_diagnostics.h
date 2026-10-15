@@ -6,6 +6,7 @@
 
 typedef struct {
  bool checked,wifi,utc_ready,configured,attempted,response_valid,backend_available,stt,tts,custom_ca,heap_measured;
+ bool stt_known,tts_known;
  int transport_error,http_status,tls_error,tls_code,verify_flags;
  unsigned free_heap,largest_block;
  int64_t checked_ms;
