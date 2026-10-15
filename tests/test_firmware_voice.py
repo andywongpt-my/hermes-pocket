@@ -14,6 +14,7 @@ HEADERS = {
     'esp_log.h': '#pragma once\nvoid test_log(const char *,const char *,...);\n#define ESP_LOGI(tag,...) test_log(tag,__VA_ARGS__)\n',
     'esp_random.h': '#pragma once\n#include <stddef.h>\nvoid esp_fill_random(void *,size_t);\n',
     'esp_timer.h': '#pragma once\n#include <stdint.h>\nint64_t esp_timer_get_time(void);\n',
+    'esp_heap_caps.h': '#pragma once\n#include <stddef.h>\n#define MALLOC_CAP_INTERNAL 1\n#define MALLOC_CAP_8BIT 2\nsize_t heap_caps_get_free_size(unsigned);\nsize_t heap_caps_get_largest_free_block(unsigned);\n',
     'esp_sntp.h': '#pragma once\n#define SNTP_OPMODE_POLL 0\nvoid esp_sntp_setoperatingmode(int);\nvoid esp_sntp_setservername(int,const char *);\nvoid esp_sntp_init(void);\n',
     'freertos/FreeRTOS.h': '''#pragma once
 #include <stdint.h>
@@ -90,6 +91,7 @@ static jmp_buf stopped;
 static int mode, command_reads, audio_attempts, status_calls, posts, queue_live, recorder_tasks, record_active, packets, task_deletes;
 static int retained_capture, playback_calls, finish_calls, abort_calls, capture_reads;
 static int transport_failures,status_successes,http_closes;
+static int chunk_attempts;
 static int64_t elapsed_ms,last_exchange_ms;
 static bool transport_open;
 static int usage_polls,usage_disconnects,json_live;
@@ -102,6 +104,7 @@ static void *allocations[16];
 static size_t allocation_sizes[16];
 static bool allocation_audio[16];
 static char status_log[128];
+static char capture_log[256],request_log[256];
 static char endpoint[193];
 static void track_peak(void) { size_t bytes=audio_bytes+queue_bytes+record_stack;if(bytes>peak_audio_bytes)peak_audio_bytes=bytes; }
 static void *test_malloc(size_t size) {
@@ -113,9 +116,11 @@ static void *test_malloc(size_t size) {
 static void test_free(void *p) { if(!p)return;for(unsigned i=0;i<16;i++)if(allocations[i]==p){if(allocation_audio[i])audio_bytes-=allocation_sizes[i];allocations[i]=NULL;free(p);return;}abort(); }
 static unsigned live_allocations(void) { unsigned n=0;for(unsigned i=0;i<16;i++)if(allocations[i])n++;return n; }
 time_t test_time(time_t *out) { if(out)*out=1735689600;return 1735689600; }
-void test_log(const char *tag,const char *fmt,...) { if(strcmp(tag,"pocket_status"))return;va_list args;va_start(args,fmt);vsnprintf(status_log,sizeof(status_log),fmt,args);va_end(args); }
+void test_log(const char *tag,const char *fmt,...) { char *out=NULL;size_t cap=0;if(!strcmp(tag,"pocket_status")){out=status_log;cap=sizeof(status_log);}if(!strcmp(tag,"pocket_capture")){out=capture_log;cap=sizeof(capture_log);}if(!strcmp(tag,"pocket_voice_request")){out=request_log;cap=sizeof(request_log);}if(!out)return;va_list args;va_start(args,fmt);vsnprintf(out,cap,fmt,args);va_end(args); }
 void esp_fill_random(void *p,size_t size) { memset(p,0,size); }
-int64_t esp_timer_get_time(void) { return 0; }
+int64_t esp_timer_get_time(void) { return elapsed_ms*1000; }
+size_t heap_caps_get_free_size(unsigned caps) { (void)caps;return 32000; }
+size_t heap_caps_get_largest_free_block(unsigned caps) { (void)caps;return 24000; }
 void esp_sntp_setoperatingmode(int unused) { (void)unused; }
 void esp_sntp_setservername(int unused,const char *name) { (void)unused;(void)name; }
 void esp_sntp_init(void) { }
@@ -127,7 +132,7 @@ void xQueueReset(QueueHandle_t queue) { assert(queue==&audio_handle);packets=0;q
 unsigned uxQueueMessagesWaiting(QueueHandle_t queue) { assert(queue==&audio_handle);return (unsigned)packets; }
 BaseType_t xQueueSend(QueueHandle_t queue,const void *value,TickType_t ticks) { (void)ticks;if(queue==&audio_handle){if((unsigned)packets==queue_count)return pdFALSE;memcpy(packet_data+queue_tail*queue_item_size,value,queue_item_size);queue_tail=(queue_tail+1)%queue_count;packets++;}return pdTRUE; }
 BaseType_t xQueueReceive(QueueHandle_t queue,void *out,TickType_t ticks) {
- if(queue==commands){if(command_reads++>=(mode==10?6:mode==11?4:1)){if((mode>0 && mode<10) || mode==12)assert(!usage_polls && !usage_disconnects);longjmp(stopped,1);}elapsed_ms+=ticks;*(unsigned *)out=1;held=mode!=2;bool idle=mode==0 || mode==10 || mode==11 || mode==13 || mode==14;state.busy=!idle;return idle?pdFALSE:pdTRUE;}
+ if(queue==commands){if(command_reads++>=(mode==10?6:mode==11?4:1)){if((mode>0 && mode<10) || mode==12 || mode==15 || mode==16)assert(!usage_polls && !usage_disconnects);longjmp(stopped,1);}elapsed_ms+=ticks;*(unsigned *)out=1;state.target=1;held=mode!=2;bool idle=mode==0 || mode==10 || mode==11 || mode==13 || mode==14;state.busy=!idle;return idle?pdFALSE:pdTRUE;}
  assert(queue==&audio_handle);if(mode==7)cancelled=true;if(packets){memcpy(out,packet_data+queue_head*queue_item_size,queue_item_size);queue_head=(queue_head+1)%queue_count;packets--;return pdTRUE;}return pdFALSE;
 }
 BaseType_t xTaskCreate(void (*fn)(void *),const char *name,unsigned stack,void *arg,unsigned priority,TaskHandle_t *handle) {
@@ -142,7 +147,7 @@ void xTaskNotifyGive(TaskHandle_t task) { (void)task; }
 esp_err_t bsp_audio_init(void) { return ESP_OK; }
 esp_err_t bsp_audio_set_format(unsigned a,unsigned b,unsigned c) { assert(a==16000 && b==16 && c==1);return ESP_OK; }
 void bsp_audio_set_volume(unsigned volume) { (void)volume; }
-esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);capture_reads++;if(mode!=9)held=false;return ESP_OK; }
+esp_err_t bsp_audio_read(void *out,size_t size) { memset(out,0,size);capture_reads++;elapsed_ms+=64;if(mode!=9)held=false;return mode==15?ESP_FAIL:ESP_OK; }
 esp_err_t bsp_audio_write(const void *data,size_t size) { (void)data;playback_calls++;playback_bytes=size;return ESP_OK; }
 int mbedtls_base64_encode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;*size=4*((bytes+2)/3);if(cap<=*size)return -1;memset(out,'A',*size);if(bytes%3)out[*size-1]='=';if(bytes%3==1)out[*size-2]='=';out[*size]=0;uploaded_bytes=bytes;return 0; }
 int mbedtls_base64_decode(unsigned char *out,size_t cap,size_t *size,const unsigned char *in,size_t bytes) { (void)in;(void)bytes;*size=mode==8?4096:2;if(cap<*size)return -1;memset(out,0,*size);return 0; }
@@ -159,13 +164,14 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  (void)origin;(void)token;(void)ca;assert(cap>=3);snprintf(endpoint,sizeof(endpoint),"%s",path);if(strstr(path,"/status"))status_calls++;if(body)posts++;
  if(strstr(path,"/finish"))finish_calls++;
  if(strstr(path,"/abort"))abort_calls++;
+ if(body && strstr(path,"/chunk"))chunk_attempts++;
  /* Model the deployed bridge's three-second idle expiry. Old firmware reuses
     this dead connection; fresh status connections must never hit that path. */
- if(mode==11 || (mode==10 && transport_open && elapsed_ms-last_exchange_ms>=3000) || (mode==12 && body)){
+ if(mode==11 || (mode==10 && transport_open && elapsed_ms-last_exchange_ms>=3000) || (mode==12 && body) || (mode==16 && body && strstr(path,"/chunk"))){
   transport_failures++;transport_open=false;out[0]=0;result->status=-1;result->length=0;return ESP_FAIL;
  }
  transport_open=true;last_exchange_ms=elapsed_ms;if(strstr(path,"/status"))status_successes++;
- if(mode==8 && body && strstr(path,"/chunk"))printf("SYNTHETIC_UPLOAD %s\n",body);
+ if(mode==8 && body && strstr(path,"/chunk")){elapsed_ms+=80;printf("SYNTHETIC_UPLOAD %s\n",body);}
  if(mode==8 && (strstr(path,"/finish") || (!body && !strstr(path,"/status") && !strstr(path,"/speech"))) && (queue_live || audio_bytes))retained_capture++;
  memcpy(out,"{}",3);result->status=200;result->length=2;if(mode==14)state.busy=true;return ESP_OK;
 }
@@ -181,9 +187,9 @@ static void reset(int value) {
  for(unsigned i=0;i<16;i++)if(allocations[i]){free(allocations[i]);allocations[i]=NULL;}
  mode=value;command_reads=audio_attempts=status_calls=posts=queue_live=recorder_tasks=record_active=packets=task_deletes=0;
  retained_capture=playback_calls=finish_calls=abort_calls=capture_reads=0;audio_bytes=peak_audio_bytes=queue_bytes=record_stack=uploaded_bytes=playback_bytes=0;queue_head=queue_tail=0;endpoint[0]=0;
- transport_failures=status_successes=http_closes=0;elapsed_ms=last_exchange_ms=0;transport_open=false;
+ transport_failures=status_successes=http_closes=chunk_attempts=0;elapsed_ms=last_exchange_ms=0;transport_open=false;
  usage_polls=usage_disconnects=json_live=0;usage_targets=0;
- memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=0;
+ memset(&state,0,sizeof(state));held=cancelled=capture_done=capture_failed=false;audio_unavailable=false;commands=&command_handle;audio_queue=NULL;status_log[0]=capture_log[0]=request_log[0]=0;
 }
 #define CHECK(c,m) do { if(!(c)){puts("FAIL: " m);return 1;} } while(0)
 int main(int argc,char **argv) {
@@ -196,6 +202,7 @@ int main(int argc,char **argv) {
   CHECK(record_stack==6144,"phase budget did not account for deferred recorder-stack reclamation");
   CHECK(playback_calls==1 && playback_bytes==4096,"full-size PCM playback changed");
   CHECK(uploaded_bytes>0 && uploaded_bytes<=2048,"capture chunks exceeded the reduced workspace");
+  CHECK(strstr(capture_log,"target=1 reason=0 error=0 bytes=2048 capture_ms=64 max_read_ms=64 queue_peak=1 chunks=1 max_upload_ms=80")!=NULL,"capture production and upload timing were not recorded accurately");
   CHECK(queue_live==0 && live_allocations()==2 && !state.busy,"voice candidate leaked audio resources");
   printf("PASS: %s peak_audio_bytes=%zu capture_pcm_bytes=%zu playback_pcm_bytes=%zu queued_pcm_bytes=%u\n",argv[1],peak_audio_bytes,uploaded_bytes,playback_bytes,queue_count*(queue_item_size-(unsigned)sizeof(size_t)));return 0;
  }
@@ -242,6 +249,16 @@ int main(int argc,char **argv) {
  reset(9);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(exit_kind==1 && capture_reads==(int)queue_count+1 && abort_calls==1 && finish_calls==0,"queue overflow was not bounded and discarded");
  CHECK(queue_live==0 && live_allocations()==2 && !state.busy,"overflow retained capture resources");
+ CHECK(strstr(capture_log,"target=1 reason=2 error=0 bytes=10240 capture_ms=320 max_read_ms=64 queue_peak=4")!=NULL,"bounded queue overflow lacked distinct numeric diagnostics");
+ reset(15);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(capture_reads==1 && abort_calls==1 && finish_calls==0,"audio read failure did not discard capture before transcription");
+ CHECK(strstr(state.message,"Audio input failed")!=NULL,"audio read failure was mislabeled as a slow connection");
+ CHECK(strstr(capture_log,"target=1 reason=1 error=-1 bytes=0 capture_ms=64 max_read_ms=64 queue_peak=0 chunks=0")!=NULL,"audio read failure lacked distinct numeric diagnostics");
+ CHECK(queue_live==0 && live_allocations()==2 && !state.busy,"audio read failure retained capture resources");
+ reset(16);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
+ CHECK(chunk_attempts==1 && abort_calls==1 && finish_calls==0,"failed audio chunk was retried or submitted for transcription");
+ CHECK(strstr(request_log,"target=1 stage=3 error=-1 http=-1")!=NULL,"upload failure lacked request-stage diagnostics");
+ CHECK(queue_live==0 && live_allocations()==2 && !state.busy,"failed upload retained capture resources");
  reset(0);puts("PASS: idle status, eligibility, allocation failure and capture cleanup");return 0;
 }
 '''
