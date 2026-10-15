@@ -3,7 +3,7 @@
 #define POCKET_MODEL_H
 #include <stdbool.h>
 #include <stdint.h>
-typedef enum { POCKET_STATUS, POCKET_CHAT, POCKET_USAGE, POCKET_SCREEN_OFF, POCKET_PAGE_COUNT } pocket_page;
+typedef enum { POCKET_STATUS, POCKET_CHAT, POCKET_USAGE, POCKET_DIAGNOSTICS, POCKET_SCREEN_OFF, POCKET_PAGE_COUNT } pocket_page;
 typedef enum { POCKET_UP, POCKET_DOWN, POCKET_OK } pocket_button;
 typedef enum { POCKET_NONE, POCKET_START_RECORDING, POCKET_SEND_AUDIO, POCKET_STOP_PLAYBACK } pocket_action;
 typedef enum { POCKET_IDLE, POCKET_QUEUED, POCKET_RUNNING, POCKET_APPROVAL, POCKET_DONE, POCKET_FAILED, POCKET_CANCELLED } pocket_task;
@@ -17,6 +17,7 @@ typedef struct {
 void pocket_init(pocket_model *m);
 void pocket_connection(pocket_model *m,unsigned target,bool online);
 bool pocket_select(pocket_model *m,unsigned target);
+bool pocket_select_from_home(pocket_model *m,unsigned target,bool setup_active,bool voice_busy);
 pocket_action pocket_press(pocket_model *m,pocket_button button);
 pocket_action pocket_release(pocket_model *m,pocket_button button);
 void pocket_submitted(pocket_model *m,unsigned target);

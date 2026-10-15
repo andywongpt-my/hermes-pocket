@@ -43,6 +43,7 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  unsigned target=!strncmp(path,"/targets/windows/",17)?0u:!strncmp(path,"/targets/linux/",15)?1u:2u;
  unsigned free_before=(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
  unsigned largest_before=(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+ result->free_heap=free_before;result->largest_block=largest_before;result->heap_measured=true;
  if(client && (strcmp(origin,previous_origin) || strcmp(token,previous_token) || strcmp(ca,previous_ca)))pocket_http_close();
  response_buffer buffer={.out=out,.capacity=cap};
  if(!client) {
@@ -67,9 +68,11 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
  esp_http_client_set_user_data(client,NULL);memset(auth,0,sizeof(auth));
  unsigned free_after=(unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
  unsigned largest_after=(unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
+ result->free_heap=free_after;result->largest_block=largest_after;
  if(error!=ESP_OK){
   int tls_code=0,verify_flags=0;
   esp_err_t tls_error=esp_http_client_get_and_clear_last_tls_error(client,&tls_code,&verify_flags);
+  result->tls_error=tls_error;result->tls_code=tls_code;result->verify_flags=verify_flags;
   /* Numeric-only diagnostics; never include endpoints, credentials or response data. */
   ESP_LOGW("pocket_tls","target=%u http=%d tls=0x%x mbedtls=0x%x verify=0x%x ca=%u utc_ready=%u free_before=%u largest_before=%u free_after=%u largest_after=%u",
    target,error,(unsigned)tls_error,(unsigned)tls_code,(unsigned)verify_flags,

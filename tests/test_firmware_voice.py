@@ -216,15 +216,19 @@ int main(int argc,char **argv) {
  CHECK(status_calls==6 && status_successes==6 && !transport_failures && http_closes==6 && !transport_open,"status reused a connection after the bridge idle expiry");
  CHECK(state.online[0] && state.online[1] && state.speech_ready[0] && state.speech_ready[1],"fresh successful polls did not keep both target states ready");
  CHECK(usage_polls==6 && usage_targets==3 && !usage_disconnects,"Usage did not remain serialized and target scoped across fresh idle polls");
+ CHECK(state.diagnostics[0].checked && state.diagnostics[1].checked && state.diagnostics[0].http_status==200 && state.diagnostics[1].http_status==200,"successful status observations were not target scoped");
+ CHECK(state.diagnostics[0].backend_available && state.diagnostics[1].stt && !state.diagnostics[1].tts,"status diagnostic capabilities were invented or lost");
  reset(11);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(status_calls==4 && !status_successes && transport_failures==4 && !state.online[0] && !state.online[1] && !state.speech_ready[0] && !state.speech_ready[1],"persistent failure was hidden instead of staying offline");
  CHECK(!posts && !audio_attempts && !queue_live,"failed status triggered side effects or audio allocations");
  CHECK(!usage_polls && usage_disconnects==4,"failed status started Usage TLS requests");
+ CHECK(state.diagnostics[0].transport_error==ESP_FAIL && state.diagnostics[1].http_status==-1 && !state.diagnostics[1].backend_available,"failed status retained stale success or mixed HTTP and transport errors");
  reset(12);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(posts==1 && transport_failures==1 && !finish_calls && !abort_calls,"failed audio submission was retried or duplicated");
  CHECK(!state.busy && !queue_live && live_allocations()==2,"failed POST did not release capture allocations");
  reset(13);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(!usage_polls && usage_disconnects==1 && !status_calls,"offline worker attempted Usage I/O");
+ CHECK(state.diagnostics[0].checked && !state.diagnostics[0].wifi && !state.diagnostics[0].http_status,"offline poll invented a network observation");
  reset(14);exit_kind=setjmp(stopped);if(!exit_kind)network(NULL);
  CHECK(!usage_polls && !usage_disconnects && status_calls==1,"queued voice lost priority to Usage polling");
  for(int value=1;value<=2;value++){

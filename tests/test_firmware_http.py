@@ -103,6 +103,8 @@ int main(void) {
  reset(true,1735689600,1,8);
  CHECK(pocket_http_json("https://synthetic-private-host.invalid","/targets/linux/status",token,"SYNTHETIC_PUBLIC_CA","SYNTHETIC_PRIVATE_BODY",out,sizeof(out),&result)==ESP_FAIL,"original transport error changed");
  CHECK(reads==1,"TLS verification flags were not retrieved before cleanup");
+ CHECK(result.status==0 && result.tls_error==0x801a && result.tls_code==0x2700 && result.verify_flags==8,"diagnostic snapshot lost separate HTTP/TLS evidence before cleanup");
+ CHECK(result.free_heap==64000 && result.largest_block==48000,"diagnostic snapshot lost the measured internal heap");
  CHECK(performs==1 && cleanups==1 && out[0]==0 && result.length==0,"failure cleanup or no-retry contract changed");
  CHECK(logs==1 && !strcmp(log_tag,"pocket_tls"),"missing single diagnostic record");
  CHECK(!strcmp(diagnostic,"target=1 http=-1 tls=0x801a mbedtls=0x2700 verify=0x8 ca=1 utc_ready=1 free_before=64000 largest_before=48000 free_after=64000 largest_after=48000"),"diagnostic must contain only the approved numeric fields and booleans");
@@ -112,6 +114,7 @@ int main(void) {
  reset(true,1735689600,0,0);
  CHECK(pocket_http_json("https://synthetic-private-host.invalid","/targets/linux/status",token,"SYNTHETIC_PUBLIC_CA",NULL,out,sizeof(out),&result)==ESP_OK,"success changed");
  CHECK(logs==1 && reads==0 && cleanups==0 && result.status==200,"status success must preserve the client and TLS error state");
+ CHECK(result.tls_error==0 && result.tls_code==0 && result.verify_flags==0 && result.free_heap==64000,"successful snapshot retained an older TLS failure");
  CHECK(!strcmp(log_tag,"pocket_tls_heap") && !strcmp(diagnostic,"target=1 http=200 free_before=64000 largest_before=48000 free_after=64000 largest_after=48000"),"successful status heap evidence must be numeric-only");
  pocket_http_close();puts("PASS: numeric-only TLS diagnostics survive cleanup with target/CA/UTC attribution");return 0;
 }

@@ -25,13 +25,14 @@ class FirmwareHostTests(unittest.TestCase):
         root=pathlib.Path(__file__).resolve().parents[1]/'firmware'
         include=['-DLV_CONF_INCLUDE_SIMPLE','-I'+str(root/'tests'),'-I'+lvgl,'-I'+str(root/'main'),'-I'+str(root/'core')]
         names=['home','home-offline','chat-ready','chat-listening','chat-thinking','chat-speaking','chat-error','chat-offline','usage',
-               'usage-available','usage-next-window','usage-null-zero','usage-stale-partial-failed','home-after-usage','screen','setup']
+               'usage-available','usage-next-window','usage-null-zero','usage-stale-partial-failed','home-after-usage',
+               'diag-unchecked','diag-ready','diag-tls','diag-login','diag-paused','home-save-failed','screen','setup']
         with tempfile.TemporaryDirectory() as temp:
             out=os.environ.get('POCKET_SNAPSHOT_DIR') or temp
-            subprocess.run([compiler,'-c','-std=c11','-O1','-Wall','-Wextra','-Werror',*include,str(root/'main/pocket_ui.c'),str(root/'core/pocket_usage.c'),str(root/'tests/ui_snapshot.c')],cwd=temp,check=True,capture_output=True)
+            subprocess.run([compiler,'-c','-std=c11','-O1','-Wall','-Wextra','-Werror',*include,str(root/'main/pocket_ui.c'),str(root/'core/pocket_usage.c'),str(root/'core/pocket_diagnostics.c'),str(root/'tests/ui_snapshot.c')],cwd=temp,check=True,capture_output=True)
             sources=sorted(str(p) for p in pathlib.Path(lvgl,'src').rglob('*.c'))
             binary=pathlib.Path(temp)/('ui-snapshot.exe' if os.name=='nt' else 'ui-snapshot')
-            subprocess.run([compiler,'-std=c11','-O1','-w',*include,'pocket_ui.o','pocket_usage.o','ui_snapshot.o',*sources,'-lm','-o',str(binary)],cwd=temp,check=True,capture_output=True)
+            subprocess.run([compiler,'-std=c11','-O1','-w',*include,'pocket_ui.o','pocket_usage.o','pocket_diagnostics.o','ui_snapshot.o',*sources,'-lm','-o',str(binary)],cwd=temp,check=True,capture_output=True)
             subprocess.run([str(binary),out],check=True,capture_output=True,timeout=120)
             for name in names:
                 image=pathlib.Path(out,name+'.bmp').read_bytes()

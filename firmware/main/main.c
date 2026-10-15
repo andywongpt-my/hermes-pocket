@@ -4,6 +4,8 @@
 #include "pocket_voice.h"
 #include "pocket_ui.h"
 #include "pocket_usage_client.h"
+#include "pocket_preferences.h"
+#include "esp_timer.h"
 #include "bsp_i2c.h"
 #include "bsp_display.h"
 #include "bsp_button.h"
@@ -21,6 +23,7 @@ typedef struct { bsp_btn_t button; bsp_btn_ev_t event; } input;
 static QueueHandle_t events;
 static pocket_model model;
 static bool battery_ready,screen_off,wake_gesture;
+static bool target_save_failed;
 static atomic_int battery_percent=ATOMIC_VAR_INIT(-1);
 static unsigned held_buttons;
 static bool discard_gesture[BSP_BTN_COUNT];
@@ -45,6 +48,7 @@ static void render(void) {
  static pocket_usage_snapshot usage;pocket_usage_read(model.target,&usage);
  const pocket_ui_view view={
   .page=model.page,.target=model.target,.usage=&usage,.usage_window=model.usage_window,.now=(int64_t)time(NULL),
+  .uptime_ms=esp_timer_get_time()/1000,.diagnostics=&voice.diagnostics[model.target],.target_save_failed=target_save_failed,
   .battery_percent=atomic_load_explicit(&battery_percent,memory_order_relaxed),
   .setup_active=setup.active,.wifi_connected=setup.wifi_connected,
   .online=voice.online[model.target],.speech_ready=voice.speech_ready[model.target],
@@ -110,6 +114,7 @@ void app_main(void) {
  pocket_ui_create();
  render();bsp_lvgl_unlock();bsp_display_backlight(65);
  if(pocket_setup_init()!=ESP_OK) { /* Keep offline UI available; never erase NVS. */ }
+ pocket_select(&model,pocket_preferences_load_target());
  if(pocket_voice_init()!=ESP_OK){ /* Offline UI remains available. */ }
  /* Complete blocking startup before callbacks can queue physical gestures. */
  battery_ready=bsp_battery_init()==ESP_OK;refresh_battery();
@@ -133,7 +138,10 @@ void app_main(void) {
   if(value.event!=BSP_BTN_CLICK)continue;
   pocket_setup_state current_setup;pocket_setup_read(&current_setup);
   if(value.button==BSP_BTN_OK && model.page==POCKET_SCREEN_OFF && !current_setup.active){enter_screen_off();continue;}
-  if(value.button==BSP_BTN_OK && model.page==POCKET_STATUS){pocket_voice_state current;pocket_voice_read(&current);if(!current.busy)pocket_select(&model,1-model.target);}
+  if(value.button==BSP_BTN_OK && model.page==POCKET_STATUS){
+   pocket_voice_state current;pocket_voice_read(&current);
+   if(pocket_select_from_home(&model,1-model.target,current_setup.active,current.busy))target_save_failed=pocket_preferences_save_target(model.target)!=ESP_OK;
+  }
   else if(value.button==BSP_BTN_OK && model.page==POCKET_USAGE && !current_setup.active)pocket_press(&model,POCKET_OK);
   else if(value.button==BSP_BTN_UP)pocket_press(&model,POCKET_UP);
   else if(value.button==BSP_BTN_DOWN)pocket_press(&model,POCKET_DOWN);

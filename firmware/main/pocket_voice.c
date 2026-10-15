@@ -180,15 +180,24 @@ static void network(void *unused){
  for(;;){
   if(xQueueReceive(commands,&target,pdMS_TO_TICKS(5000))!=pdTRUE){
    pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false,reachable=false;int http_status=0;
-   if(current.wifi_connected && time(NULL)>=1704067200 && pocket_setup_link(poll_target,link)){
-    char route[64];snprintf(route,sizeof(route),"/targets/%s/status",poll_target?"linux":"windows");pocket_http_result result;
+   pocket_diagnostics observed={.checked=true,.wifi=current.wifi_connected,.utc_ready=time(NULL)>=1704067200};
+   if(observed.wifi && observed.utc_ready)observed.configured=pocket_setup_link(poll_target,link);
+   if(observed.configured){
+    observed.attempted=true;
+    observed.custom_ca=link->ca[0]!=0;
+    char route[64];snprintf(route,sizeof(route),"/targets/%s/status",poll_target?"linux":"windows");pocket_http_result result={0};
     esp_err_t error=pocket_http_json(link->origin,route,link->token,link->ca,NULL,response,8192,&result);http_status=result.status;
+    observed.transport_error=error;observed.http_status=result.status;observed.tls_error=result.tls_error;
+    observed.tls_code=result.tls_code;observed.verify_flags=result.verify_flags;observed.free_heap=result.free_heap;observed.largest_block=result.largest_block;observed.heap_measured=result.heap_measured;
     if(error==ESP_OK && http_status==200){
-     cJSON *j=cJSON_Parse(response);reachable=j!=NULL;online=!strcmp(string(j,"backend"),"available");
-     cJSON *v=cJSON_GetObjectItemCaseSensitive(j,"voice");ready=cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v,"stt"));cJSON_Delete(j);
+     cJSON *j=cJSON_Parse(response);const char *backend=string(j,"backend");
+     reachable=!strcmp(backend,"available") || !strcmp(backend,"unavailable");online=reachable && !strcmp(backend,"available");
+     cJSON *v=cJSON_GetObjectItemCaseSensitive(j,"voice");ready=reachable && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v,"stt"));
+     observed.tts=reachable && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v,"tts"));cJSON_Delete(j);
     }
    }
-   portENTER_CRITICAL(&mux);bool changed=state.online[poll_target]!=online || state.speech_ready[poll_target]!=ready;bool voice_pending=state.busy;state.online[poll_target]=online;state.speech_ready[poll_target]=ready;portEXIT_CRITICAL(&mux);
+   observed.response_valid=reachable;observed.backend_available=online;observed.stt=ready;observed.checked_ms=esp_timer_get_time()/1000;
+   portENTER_CRITICAL(&mux);bool changed=state.online[poll_target]!=online || state.speech_ready[poll_target]!=ready;bool voice_pending=state.busy;state.online[poll_target]=online;state.speech_ready[poll_target]=ready;state.diagnostics[poll_target]=observed;portEXIT_CRITICAL(&mux);
    if(changed)ESP_LOGI("pocket_status","target=%u http=%d backend_available=%u stt=%u",poll_target,http_status,(unsigned)online,(unsigned)ready);
    /* Reuse this worker/client/buffer after deleting status JSON; queued voice
       takes priority. No Usage requests run during capture, waiting or playback. */

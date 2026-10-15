@@ -3,6 +3,11 @@
 #include <stdio.h>
 int main(void) {
  pocket_model m; pocket_init(&m);
+ assert(!pocket_select_from_home(&m,1,true,false) && m.target==0);
+ assert(!pocket_select_from_home(&m,1,false,true) && m.target==0);
+ assert(pocket_select_from_home(&m,1,false,false) && m.target==1);
+ m.page=POCKET_CHAT;assert(!pocket_select_from_home(&m,0,false,false) && m.target==1);
+ pocket_init(&m);
  assert(m.page==POCKET_STATUS && m.target==0 && !m.connected[0]);
  assert(m.usage_window==0);
  assert(pocket_press(&m,POCKET_OK)==POCKET_NONE);
@@ -40,6 +45,8 @@ int main(void) {
  pocket_press(&m,POCKET_OK);assert(m.usage_window==1);
  pocket_press(&m,POCKET_UP);assert(m.page==POCKET_CHAT && m.usage_window==1);
  pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_USAGE && m.usage_window==1);
+ pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_DIAGNOSTICS && m.usage_window==1);
+ assert(pocket_press(&m,POCKET_OK)==POCKET_NONE && !m.recording);
  pocket_press(&m,POCKET_DOWN);assert(m.page==POCKET_SCREEN_OFF && m.usage_window==1);
  pocket_press(&m,POCKET_OK);assert(m.usage_window==1);
  for(int i=0;i<1000;i++) { pocket_press(&m,POCKET_DOWN); assert(m.page<POCKET_PAGE_COUNT); }

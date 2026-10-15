@@ -98,6 +98,19 @@ int main(int argc,char **argv){
  usage.providers[2].metrics[0]=metric(3.4,POCKET_USAGE_USD_CREDIT,POCKET_USAGE_PURCHASED_CREDIT,0,now);
  failed|=shot(out,"usage-stale-partial-failed",v,240);
  v=base;failed|=shot(out,"home-after-usage",v,240);
+ pocket_diagnostics diagnostics={0};
+ v=base;v.page=POCKET_DIAGNOSTICS;v.diagnostics=&diagnostics;v.uptime_ms=12000;
+ failed|=shot(out,"diag-unchecked",v,240);
+ diagnostics=(pocket_diagnostics){.checked=true,.wifi=true,.utc_ready=true,.configured=true,.attempted=true,.heap_measured=true,
+  .response_valid=true,.backend_available=true,.stt=true,.tts=true,.custom_ca=true,
+  .http_status=200,.free_heap=53052,.largest_block=40960,.checked_ms=1000};
+ failed|=shot(out,"diag-ready",v,240);
+ diagnostics.transport_error=-1;diagnostics.http_status=0;diagnostics.tls_error=0x801a;diagnostics.tls_code=0x2700;diagnostics.verify_flags=8;
+ failed|=shot(out,"diag-tls",v,240);
+ diagnostics.transport_error=0;diagnostics.http_status=401;diagnostics.tls_error=diagnostics.tls_code=diagnostics.verify_flags=0;
+ failed|=shot(out,"diag-login",v,240);
+ v.busy=true;v.uptime_ms=61000;failed|=shot(out,"diag-paused",v,240);
+ v=base;v.target_save_failed=true;failed|=shot(out,"home-save-failed",v,240);
  v=base;v.page=POCKET_SCREEN_OFF;failed|=shot(out,"screen",v,600);
  v=base;v.setup_active=true;v.ssid="HermesPocket-4F2A";v.password="cat-nap-4821";failed|=shot(out,"setup",v,240);
  return failed;

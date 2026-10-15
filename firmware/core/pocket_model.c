@@ -11,6 +11,9 @@ bool pocket_select(pocket_model *m,unsigned target) {
  if(target>=2 || m->recording)return false;
  m->target=target; m->playing=false; return true;
 }
+bool pocket_select_from_home(pocket_model *m,unsigned target,bool setup_active,bool voice_busy){
+ return m->page==POCKET_STATUS && !setup_active && !voice_busy && pocket_select(m,target);
+}
 pocket_action pocket_press(pocket_model *m,pocket_button button) {
  if(button==POCKET_OK && m->playing){m->playing=false;return POCKET_STOP_PLAYBACK;}
  if(m->recording)return POCKET_NONE;

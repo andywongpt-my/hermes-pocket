@@ -198,7 +198,7 @@ static void usage_text(int x1,int y1,int x2,const char *text,uint32_t color,lv_t
 }
 static void draw_dots(lv_event_t *event) {
  begin(event);
- for(unsigned i=0,x=120-(14+6*3+8*3)/2;i<POCKET_PAGE_COUNT;i++){
+ for(unsigned i=0,x=120-(14+6*(POCKET_PAGE_COUNT-1)+8*(POCKET_PAGE_COUNT-1))/2;i<POCKET_PAGE_COUNT;i++){
   const bool active=i==active_page;
   blob((int)x,0,(int)x+(active?13:5),5,3,active?MINT:LINE,0,LV_OPA_COVER);x+=(active?14:6)+8;
  }
@@ -305,7 +305,7 @@ void pocket_ui_set_awake(bool awake) {
  if(awake)lv_timer_resume(animation);else lv_timer_pause(animation);
 }
 void pocket_ui_render(const pocket_ui_view *v) {
- static const char *names[]={"HOME","CHAT","USAGE","SCREEN"};
+ static const char *names[]={"HOME","CHAT","USAGE","DIAG","SCREEN"};
  lv_label_set_text_fmt(title,"%s / %s",names[v->page],v->target==0?"WIN":"LINUX");
  const int percent=v->battery_percent<0?-1:v->battery_percent;
  if(percent>=0)lv_label_set_text_fmt(battery,"%d%%",percent);else lv_label_set_text(battery,"N/A");
@@ -321,7 +321,8 @@ void pocket_ui_render(const pocket_ui_view *v) {
  if(active)next=v->recording?CAT_LISTENING:v->playing?CAT_SPEAKING:CAT_THINKING;
  else if(v->page==POCKET_SCREEN_OFF||!v->online)next=CAT_SLEEPY;
  if(next!=mood){mood=next;frame=0;lv_obj_invalidate(cat);}
- show(cat,!v->setup_active&&v->page!=POCKET_USAGE);
+ show(cat,!v->setup_active&&v->page!=POCKET_USAGE&&v->page!=POCKET_DIAGNOSTICS);
+ lv_obj_set_style_text_font(body,v->page==POCKET_DIAGNOSTICS&&!v->setup_active?&lv_font_montserrat_14:&lv_font_source_han_sans_sc_16_cjk,0);
  show(rows,false);show(bubble,false);show(body,false);show(note,false);show(off_option,false);
 
  if(v->setup_active){
@@ -348,7 +349,14 @@ void pocket_ui_render(const pocket_ui_view *v) {
   set_row(0,"Wi-Fi",v->wifi_connected?"Connected":"Offline",v->wifi_connected?MINT:CORAL);
   set_row(1,"Hermes",v->online?"Available":"Offline",v->online?MINT:CORAL);
   set_row(2,"Voice",v->speech_ready?"Ready":"Needs setup",v->speech_ready?MINT:AMBER);show_rows(182);
-  lv_label_set_text(footer,"OK: agent  Hold: setup\nUP/DOWN: pages");return;
+  lv_label_set_text(footer,v->target_save_failed?"Target not saved\nUP/DOWN: pages":"OK: agent  Hold: setup\nUP/DOWN: pages");return;
+ }
+ if(v->page==POCKET_DIAGNOSTICS){
+  char status[40],detail[240];
+  pocket_diagnostics_format(v->diagnostics,v->uptime_ms,v->busy,status,sizeof(status),detail,sizeof(detail));
+  set_badge(status,v->diagnostics&&v->diagnostics->backend_available?SKY:AMBER,60);
+  show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);lv_label_set_text(body,detail);
+  lv_label_set_text(footer,"Last observed status\nUP/DOWN: pages");return;
  }
  if(v->page==POCKET_SCREEN_OFF){
   set_badge("SCREEN STANDBY",SLATE,154);
