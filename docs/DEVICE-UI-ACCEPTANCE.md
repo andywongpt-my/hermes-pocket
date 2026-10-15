@@ -7,8 +7,17 @@ checks below and end-to-end bridge/voice validation remain pending.
 
 ## Display
 
-- Home and Chat show the cartoon cat with pointed ears, whiskers and a pink nose.
-- Confirm the badge stays on one line and does not overlap the Wi-Fi row.
+- Home, Chat and Screen show the animated tabby cat. Compare its moods with the
+  CI `ui-snapshots` artifact: idle on Home/Chat, ears up while recording, a
+  thought bubble while waiting, a chattering mouth during playback, and asleep
+  with drooped ears when Hermes is offline (Chat then shows HERMES OFFLINE) or
+  on the Screen page. Holding OK still wakes it into the listening mood.
+- Confirm the animation looks smooth and that buttons, recording and playback
+  stay responsive while it runs. It redraws only the cat area, about 8 times a
+  second, and stops while the screen is off.
+- Confirm the colored badge stays on one line and does not overlap the status rows.
+- Chat shows what you said on the first line of the bubble, then the reply. A
+  progress or error message fills the bubble until a reply arrives.
 - Confirm the header, percentage and two footer lines fit the 240 × 320 screen.
 - Home shows Wi-Fi, Hermes and Voice states independently. Wi-Fi connected does
   not imply the Hermes bridge or speech service is ready.

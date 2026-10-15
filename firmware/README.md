@@ -11,8 +11,13 @@ speak, then release to send. Press OK while waiting or playing to stop waiting o
 playback. This does not cancel a task already running in Hermes. Approval-required
 or uncertain outcomes direct the owner to the trusted Hermes interface.
 
-The source UI now uses a cartoon cat and a header battery percentage read from
-the board's CW2017 fuel gauge. `N/A` means the gauge could not initialize or its
+The screen lives in `main/pocket_ui.c`, pure LVGL with no ESP-IDF calls. An
+animated cartoon tabby shows the agent's mood: idle (blinks, glances, swishes
+its tail), listening (ears up, wide eyes), thinking (thought bubble), speaking
+(happy eyes, chattering mouth) and sleepy (Hermes offline or Screen page). It is
+drawn with LVGL primitives at about 8 frames per second, only while visible, and
+pauses with the backlight. The header shows page dots and a battery icon plus a
+percentage read from the board's CW2017 fuel gauge. `N/A` means the gauge could not initialize or its
 latest reading failed; there is no voltage-derived or placeholder percentage.
 Readings refresh every 30 seconds in a separate low-priority task. Failed gauge
 initialization is retried there, without blocking button handling. The first
@@ -61,6 +66,14 @@ Build in an activated official ESP-IDF 5.5.3 environment:
 
     idf.py set-target esp32c3
     idf.py build
+
+UI snapshots render `pocket_ui.c` on a host computer with the device's LVGL
+version and 24 KB memory pool, so layout and memory regressions show up without
+hardware. With gcc and an LVGL 9.5.0 checkout:
+
+    LVGL_DIR=/path/to/lvgl POCKET_SNAPSHOT_DIR=/tmp/shots python3 -m unittest discover -s tests -p test_firmware_host.py
+
+CI also builds the firmware with ESP-IDF 5.5.3 and uploads the snapshots.
 
 Do not overwrite a working installation assuming all V1 features are complete.
 Use candidate split images only; do not erase flash or write across the NVS gap.
