@@ -4,6 +4,7 @@ import sqlite3
 import threading
 import time
 from .schema import decode, identifier, ProtocolError
+from .model_selection import snapshot, validate_snapshot
 
 class Conflict(ValueError): pass
 class NotFound(LookupError): pass
@@ -35,6 +36,10 @@ class Store:
           state TEXT NOT NULL, at REAL NOT NULL,
           PRIMARY KEY(device,request_id,seq),
           FOREIGN KEY(device,request_id) REFERENCES tasks(device,request_id));
+        CREATE TABLE IF NOT EXISTS task_model_selections (
+          device TEXT NOT NULL, request_id TEXT NOT NULL, choice_id TEXT NOT NULL,
+          provider TEXT, model TEXT, PRIMARY KEY(device,request_id),
+          FOREIGN KEY(device,request_id) REFERENCES tasks(device,request_id));
         ''')
     def close(self):self.db.close()
     def _get(self,device,request_id):
@@ -45,8 +50,10 @@ class Store:
         identifier(device);identifier(request_id)
         with self.lock:
             row=self._get(device,request_id);row.pop('payload');return row
-    def admit(self,device,data):
+    def admit(self,device,data,*,selection=None):
         identifier(device);data=decode(json.dumps(data,ensure_ascii=False).encode())
+        choice=data.get('model_choice','default')
+        selection=snapshot(choice) if selection is None else validate_snapshot(selection,choice)
         payload=json.dumps(data,sort_keys=True,separators=(',',':'),ensure_ascii=False)
         rid=data['request_id']
         with self.lock,self.db:
@@ -57,8 +64,19 @@ class Store:
                 if old['payload']!=payload:raise Conflict('request ID already used for different content')
                 return self.get(device,rid),False
             self.db.execute('INSERT INTO tasks VALUES(?,?,?,\'queued\',NULL,NULL,1)',(device,rid,payload))
+            self.db.execute('INSERT INTO task_model_selections VALUES(?,?,?,?,?)',
+                (device,rid,selection['choice_id'],selection['provider'],selection['model']))
             self.db.execute('INSERT INTO events VALUES(?,?,1,\'queued\',?)',(device,rid,time.time()))
             return self.get(device,rid),True
+    def model_selection(self,device,rid):
+        identifier(device);identifier(rid)
+        with self.lock:
+            task=self._get(device,rid)
+            row=self.db.execute('SELECT choice_id,provider,model FROM task_model_selections WHERE device=? AND request_id=?',(device,rid)).fetchone()
+            if row is None:
+                if json.loads(task['payload'])['version']!=1:raise Conflict('model selection journal missing')
+                return snapshot('default')
+            return validate_snapshot(dict(row))
     def transition(self,device,rid,state,*,run_id=None,result=None):
         if run_id is not None:identifier(run_id)
         if result is not None and (not isinstance(result,str) or len(result.encode('utf-8'))>65536):

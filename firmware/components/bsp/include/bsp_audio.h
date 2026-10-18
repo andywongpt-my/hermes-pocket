@@ -3,6 +3,7 @@
 #pragma once
 
 #include "esp_err.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -40,6 +41,18 @@ esp_err_t bsp_audio_wake(void);
 
 // 播放 / 录音。bytes 为字节数(16bit 单声道时 = 采样数 x 2)。
 esp_err_t bsp_audio_write(const void *pcm, size_t bytes);
+// After the final successful write, wait for a complete TX DMA ring plus one
+// guard completion. Serialize with writes/format/wake/sleep using the same
+// audio owner. Does not mute, stop, close, or change volume. Timeout is rounded
+// down to whole RTOS ticks; closed/asleep returns ESP_ERR_INVALID_STATE and a
+// stopped/nonadvancing TX returns ESP_ERR_TIMEOUT. Use only at successful EOF.
+esp_err_t bsp_audio_drain(uint32_t timeout_ms);
+// Same deadline/completion contract, with an optional fast cancellation check
+// in task context at entry and every wait tick, before success or timeout.
+// Cancellation returns ESP_ERR_INVALID_STATE; the audio owner handles mute and
+// sleep. The predicate is never called by the I2S ISR.
+esp_err_t bsp_audio_drain_cancel(uint32_t timeout_ms,
+                                 bool (*cancelled)(void *), void *context);
 esp_err_t bsp_audio_read(void *pcm, size_t bytes);
 
 // 输出音量 0..100(%)。

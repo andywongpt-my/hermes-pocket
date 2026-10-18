@@ -1,8 +1,14 @@
 # Owner-configured live bridge candidate
 
+Checkpoint note, 18 October 2026: root source is previously deployed bridge018R2;
+quota020 remains isolated and undeployed. This is guidance, not a live receipt.
+See [checkpoint status](CHECKPOINT-STATUS.md). Funnel is not configured.
+
 Run `python -m pocket.run_bridge --config owner-config.json` on the host after
 installing requirements. Startup checks liveness/capabilities without a model call.
-This entry point has not yet been deployed to the owner's machines.
+Live configuration is owner-managed. The checked Linux installation is deployed;
+see [current verification](VERIFICATION.md) for the exact physical evidence and
+the separate service-version gate for the newest task-preview response fix.
 
 Windows Desktop needs `websockets==16.0`. Speech decoding needs FFmpeg on PATH,
 installed separately from a trusted vendor/package source. No binary is downloaded
@@ -16,7 +22,7 @@ Example (all values are placeholders):
 
 ```json
 {
-  "host": "192.168.1.10",
+  "host": "192.0.2.10",
   "port": 8765,
   "tls": {"certificate": "bridge-cert.pem", "private_key": "bridge-key.pem"},
   "devices": {"pocket-one": "POCKET_DEVICE_TOKEN"},

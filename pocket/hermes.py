@@ -1,6 +1,7 @@
 """Pinned Hermes HTTP contract with injected transport; no credentials stored here."""
 from .schema import identifier
 from .transport import UpstreamRejected
+from .model_selection import validate_snapshot
 
 class UpstreamError(RuntimeError):pass
 
@@ -23,6 +24,13 @@ class HermesAdapter:
         return data
     def create(self,text,key,history=None):
         body={'input':text}
+        if history is not None:body['conversation_history']=history
+        data=self._call('POST','/v1/runs',body,{'Idempotency-Key':key})
+        return identifier(data.get('run_id'))
+    def create_selected(self,text,key,*,selection,history=None):
+        selection=validate_snapshot(selection)
+        if selection['choice_id']=='default':return self.create(text,key,history=history)
+        body={'input':text,'provider':selection['provider'],'model':selection['model']}
         if history is not None:body['conversation_history']=history
         data=self._call('POST','/v1/runs',body,{'Idempotency-Key':key})
         return identifier(data.get('run_id'))

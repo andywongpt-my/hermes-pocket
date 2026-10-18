@@ -17,15 +17,30 @@ class ChatService:
               chat TEXT NOT NULL, request TEXT NOT NULL, text TEXT NOT NULL,
               task TEXT NOT NULL, history TEXT NOT NULL,
               UNIQUE(device,chat,request))''')
+            self.store.db.execute('''CREATE TABLE IF NOT EXISTS chat_model_selections (
+              device TEXT NOT NULL, request TEXT NOT NULL, chat TEXT NOT NULL,
+              choice_id TEXT NOT NULL, provider TEXT, model TEXT,
+              PRIMARY KEY(device,request),
+              FOREIGN KEY(device,chat,request) REFERENCES chat_turns(device,chat,request))''')
     def _rows(self,device,chat):
         return self.store.db.execute('SELECT * FROM chat_turns WHERE device=? AND chat=? ORDER BY ordinal',(device,chat)).fetchall()
-    def submit(self,device,chat,data):
-        identifier(device);identifier(chat);data=decode(json.dumps(data).encode())
+    def submit(self,device,chat,data,*,selection_snapshot=None):
+        identifier(device);identifier(chat)
+        data,selection=self.service.validate_submission(data,selection_snapshot)
         with self.service.lock,self.store.lock:
+            pinned=self.store.db.execute('SELECT chat,choice_id,provider,model FROM chat_model_selections WHERE device=? AND request=?',
+                (device,data['request_id'])).fetchone()
+            if pinned:
+                if data['version']!=2 or tuple(pinned)!=(chat,selection['choice_id'],selection['provider'],selection['model']):
+                    raise Conflict('request reused with changed chat or model choice')
+            elif data['version']==2 and self.store.db.execute('SELECT 1 FROM chat_turns WHERE device=? AND request=? AND chat<>? LIMIT 1',
+                    (device,data['request_id'],chat)).fetchone():
+                raise Conflict('request reused for another chat')
             rows=self._rows(device,chat)
             old=next((r for r in rows if r['request']==data['request_id']),None)
             if old:
                 if old['text']!=data['text']:raise Conflict('request reused with changed text')
+                if data['version']==2 and pinned is None:raise Conflict('model selection journal missing')
                 task_id=old['task'];history=json.loads(old['history'])
             else:
                 history=[]
@@ -40,7 +55,10 @@ class ChatService:
                 with self.store.db:
                     self.store.db.execute('INSERT INTO chat_turns(device,chat,request,text,task,history) VALUES(?,?,?,?,?,?)',
                         (device,chat,data['request_id'],data['text'],task_id,json.dumps(history)))
-            return self.service.submit(device,dict(data,request_id=task_id),history=history)
+                    if data['version']==2:
+                        self.store.db.execute('INSERT INTO chat_model_selections VALUES(?,?,?,?,?,?)',
+                            (device,data['request_id'],chat,selection['choice_id'],selection['provider'],selection['model']))
+            return self.service.submit(device,dict(data,request_id=task_id),history=history,selection_snapshot=selection)
     def transcript(self,device,chat):
         identifier(device);identifier(chat)
         with self.service.lock,self.store.lock:

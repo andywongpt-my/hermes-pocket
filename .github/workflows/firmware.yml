@@ -41,3 +41,8 @@ jobs:
           . "$IDF_PATH/export.sh"
           idf.py build
           idf.py size
+      - name: Native task client against SDK cJSON
+        shell: bash
+        run: |
+          export POCKET_CJSON_DIR="$IDF_PATH/components/json/cJSON"
+          python -m unittest discover -s tests -p test_firmware_tasks_client.py -v

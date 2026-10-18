@@ -7,6 +7,7 @@ import argparse
 import ipaddress
 import json
 import os
+import signal
 from pathlib import Path
 from .schema import identifier
 from .transport import JSONTransport, unique
@@ -14,9 +15,11 @@ from .hermes import HermesAdapter
 from .desktop import DesktopAdapter
 from .websocket_rpc import DesktopRPC
 from .linux_voice import DashboardTransport, LinuxSpeechAdapter
+from .hermes_speech import HermesSpeechTransport
 from .service import Service
 from .store import Store
 from .server import make_server
+from .runtime_usage import HermesRuntimeUsage, _local_path
 
 def secret(variable):
     if not isinstance(variable,str) or not variable.startswith('POCKET_'):
@@ -25,6 +28,24 @@ def secret(variable):
     if not value or len(value)>8192 or any(ord(c)<33 or ord(c)>126 for c in value):
         raise ValueError('missing or invalid owner credential')
     return value
+
+def speech_adapter(voice,target):
+    if not isinstance(voice,dict) or type(voice.get('stt_enabled')) is not bool:
+        raise ValueError('explicit speech configuration required')
+    if voice.get('kind')=='hermes-command':
+        required={'kind','python','hermes_root','hermes_home','pins_file','stt_enabled'}
+        if set(voice)!=required or target!='linux':
+            raise ValueError('approved Linux Hermes command speech configuration required')
+        transport=HermesSpeechTransport(voice['python'],voice['hermes_root'],voice['hermes_home'],voice['pins_file'],resident=voice['stt_enabled'])
+        try:
+            transport.check() # Resolves metadata and warms the cached model without audio.
+        except BaseException:
+            transport.close()
+            raise
+        return LinuxSpeechAdapter(transport,stt_enabled=voice['stt_enabled'])
+    if not {'origin','token_env','stt_enabled'}<=set(voice) or set(voice)-{'origin','token_env','stt_enabled','host_header'}:
+        raise ValueError('invalid speech configuration')
+    return LinuxSpeechAdapter(DashboardTransport(voice['origin'],secret(voice['token_env']),host_header=voice.get('host_header')),stt_enabled=voice['stt_enabled'])
 
 def build(config):
     required={'targets','devices','port'}
@@ -41,7 +62,7 @@ def build(config):
     definitions=config['targets'];devices=config['devices']
     if not isinstance(definitions,dict) or not 1<=len(definitions)<=2:raise ValueError('one or two targets required')
     if not isinstance(devices,dict) or not 1<=len(devices)<=8:raise ValueError('one to eight owner-paired devices required')
-    tokens={};services={};resources=[];speech={}
+    tokens={};services={};resources=[];speech={};runtime_usage={}
     try:
         for device,variable in devices.items():
             identifier(device);token=secret(variable)
@@ -50,8 +71,14 @@ def build(config):
         paths=set()
         for target,item in definitions.items():
             required_target={'origin','token_env','database','loopback_http'}
-            if target not in ('windows','linux') or not isinstance(item,dict) or not required_target<=set(item) or set(item)-required_target-{'kind','speech'}:
+            if target not in ('windows','linux') or not isinstance(item,dict) or not required_target<=set(item) or set(item)-required_target-{'kind','speech','usage'}:
                 raise ValueError('invalid target configuration')
+            usage=item.get('usage')
+            if 'usage' in item:
+                if (not isinstance(usage,dict) or set(usage)!={'kind','state_db'} or
+                        usage['kind']!='hermes-runtime'):
+                    raise ValueError('invalid runtime usage configuration')
+                _local_path(usage['state_db'])
             if type(item['loopback_http']) is not bool:raise ValueError('explicit loopback HTTP choice required')
             database=item['database']
             if not isinstance(database,str) or not database or database==':memory:':raise ValueError('durable database path required')
@@ -67,17 +94,22 @@ def build(config):
             adapter.check()
             store=Store(path);resources.append(store);store.recover()
             services[target]=Service(store,adapter)
+            if usage is not None:
+                runtime_usage[target]=HermesRuntimeUsage(store,usage['state_db'])
+                resources.append(runtime_usage[target])
             voice=item.get('speech')
             if voice is not None:
-                if not isinstance(voice,dict) or not {'origin','token_env','stt_enabled'}<=set(voice) or set(voice)-{'origin','token_env','stt_enabled','host_header'} or type(voice['stt_enabled']) is not bool:
-                    raise ValueError('invalid speech configuration')
-                speech[target]=LinuxSpeechAdapter(DashboardTransport(voice['origin'],secret(voice['token_env']),host_header=voice.get('host_header')),stt_enabled=voice['stt_enabled'])
-        return make_server(services,tokens,host=host,port=port,speech=speech,tls=tls),resources
+                speech[target]=speech_adapter(voice,target)
+                resources.append(speech[target])
+        return make_server(services,tokens,host=host,port=port,speech=speech,tls=tls,runtime_usage=runtime_usage),resources
     except BaseException:
         for resource in reversed(resources):resource.close()
         raise
 
 def main():
+    def stop(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--config',required=True)
     args=parser.parse_args()
     try:

@@ -1,18 +1,38 @@
 """Task orchestration, with explicit uncertain-admission handling."""
 import threading
 import uuid
+import json
+from .schema import decode, ProtocolError
+from .model_selection import snapshot, validate_snapshot, catalog
 from .store import TERMINAL, InvalidTransition
 
 class Service:
     def __init__(self,store,backend):
         self.store=store;self.backend=backend;self.lock=threading.RLock()
-    def submit(self,device,data,*,history=None):
+    def validate_model_choice(self,choice):
+        value=snapshot(choice)
+        if choice!='default' and not callable(getattr(self.backend,'create_selected',None)):
+            raise ProtocolError('backend does not support model selection')
+        return value
+    def model_options(self):
+        return catalog(callable(getattr(self.backend,'create_selected',None)))
+    def validate_submission(self,data,selection=None):
+        data=decode(json.dumps(data,ensure_ascii=False).encode())
+        value=self.validate_model_choice(data.get('model_choice','default'))
+        if selection is not None:value=validate_snapshot(selection,value['choice_id'])
+        return data,value
+    def submit(self,device,data,*,history=None,selection_snapshot=None):
+        data,selection=self.validate_submission(data,selection_snapshot)
         with self.lock:
-            task,new=self.store.admit(device,data)
+            task,new=self.store.admit(device,data,selection=selection)
             if not new:return task
             rid=data['request_id'];self.store.transition(device,rid,'dispatching')
             try:
-                run=self.backend.create(data['text'],device+':'+rid) if history is None else self.backend.create(data['text'],device+':'+rid,history=history)
+                selected=self.store.model_selection(device,rid)
+                if selected['choice_id']!='default':
+                    run=self.backend.create_selected(data['text'],device+':'+rid,selection=selected,history=history)
+                else:
+                    run=self.backend.create(data['text'],device+':'+rid) if history is None else self.backend.create(data['text'],device+':'+rid,history=history)
                 return self.store.transition(device,rid,'queued_upstream',run_id=run)
             except Exception:
                 # Dispatch may have reached the server. Never retry automatically.

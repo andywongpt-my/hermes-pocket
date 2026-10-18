@@ -1,26 +1,226 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="pocket-nonce" content="__POCKET_NONCE__"><title>Connect Hermes Pocket</title>
-<style>body{font:16px system-ui,sans-serif;max-width:480px;margin:auto;padding:24px 18px;background:#101c25;color:#f4f1e9}h1{font-size:28px;margin:6px 0}p,small{line-height:1.5;color:#b9cbd6}section,details{background:#1a2c39;border:1px solid #365061;border-radius:16px;padding:18px;margin:18px 0}label{display:block;margin:16px 0 6px}input,textarea,select,button{box-sizing:border-box;width:100%;font:inherit;border-radius:10px;padding:13px;min-height:48px}input,textarea,select{background:#0c1922;color:#fff;border:1px solid #678091}button{background:#9ce4ce;color:#102820;border:0;font-weight:700;margin-top:12px;cursor:pointer}button.secondary{background:#2a4354;color:#fff}button:disabled{opacity:.6;cursor:wait}#result{white-space:pre-wrap;color:#ffd1a3;min-height:48px}#netstatus{font-size:14px}summary{cursor:pointer;padding:6px}small{display:block;margin-top:10px}.tag{color:#9ce4ce;font-size:13px;letter-spacing:2px}input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle}#saved{color:#9ce4ce}</style>
-<div class="tag">HERMES POCKET · SETUP</div><h1>Let's get connected</h1><p>Choose your home Wi-Fi. Your phone stays on the Pocket hotspot until settings are saved.</p>
-<form id="setup" novalidate><section><h2>1. Home Wi-Fi</h2><label for="networks">Nearby networks · 2.4 GHz</label><select id="networks"><option value="">Choose a network…</option></select><button id="scan" type="button" class="secondary">Scan Wi-Fi</button><p id="netstatus" role="status">Tap Scan Wi-Fi to find nearby networks.</p><label for="ssid">Network name</label><input id="ssid" autocomplete="off" maxlength="31" placeholder="Select above, or type a hidden network"><small>This is your router's Wi-Fi name, not the Pocket hotspot.</small><label for="password">Wi-Fi password</label><input id="password" type="password" autocomplete="off" maxlength="63" placeholder="Your home Wi-Fi password"><label><input id="showpass" type="checkbox"> Show password</label></section>
-<details><summary>2. Hermes connection · optional for now</summary><p>Leave these blank to set up Wi-Fi first. Only use your dedicated Pocket pairing token.</p><label for="windows">Windows bridge HTTPS address</label><input id="windows" placeholder="https://your-bridge.example" maxlength="192"><label for="linux">Linux bridge HTTPS address</label><input id="linux" placeholder="https://your-bridge.example" maxlength="192"><label for="token">Pocket pairing token</label><input id="token" type="password" maxlength="128" autocomplete="off"><label for="ca">Bridge CA certificate · optional</label><textarea id="ca" maxlength="2048" rows="4"></textarea><small>Blank fields remove existing bridge pairing. Settings are stored in unencrypted device flash. Never enter provider API keys here.</small></details>
-<p id="result" role="alert" aria-live="assertive"></p><button id="save" type="submit">Save Wi-Fi and restart</button><p id="saved" role="status"></p><small>The hotspot expires after 5 minutes. If it expires, hold OK on Pocket to reopen setup. Saving restarts Pocket; then reconnect your phone to your normal Wi-Fi.</small></form>
+<style>
+:root{color-scheme:dark;--bg:#101c25;--panel:#1a2c39;--line:#365061;--ink:#f4f1e9;--muted:#b9cbd6;--mint:#9ce4ce}*{box-sizing:border-box}body{font:16px system-ui,sans-serif;max-width:480px;margin:auto;padding:24px 16px;background:var(--bg);color:var(--ink)}h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:0 0 12px}p,small{line-height:1.5;color:var(--muted)}section,details{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:16px 0}label{display:block;margin:16px 0 8px}input,textarea,select,button{width:100%;font:inherit;border-radius:8px;padding:12px;min-height:48px}input,textarea,select{background:#0c1922;color:#fff;border:1px solid #678091}button{background:var(--mint);color:#102820;border:0;font-weight:700;margin-top:12px;cursor:pointer}button.secondary{background:#2a4354;color:#fff}button:disabled{opacity:.6;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--mint);outline-offset:3px}summary{cursor:pointer;padding:8px 0;font-weight:700}small{display:block;margin-top:8px}.tag{color:var(--mint);font-size:12px;letter-spacing:2px}.message{white-space:pre-wrap;overflow-wrap:anywhere;color:#ffd1a3}.message:empty{display:none}#connection{color:var(--mint);font-weight:700}#profile-count,#netstatus,#session-status{font-size:14px}#profiles{list-style:none;padding:0;margin:0}#profiles li{border-top:1px solid var(--line);padding:12px 0;overflow-wrap:anywhere}#profiles strong{display:block}#profiles small{margin:4px 0}.actions{display:flex;flex-wrap:wrap;gap:8px}.actions button{flex:1 1 96px;width:auto;margin-top:8px}input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle;margin-right:8px}footer{margin:24px 0 8px}textarea{resize:vertical}
+</style>
+<main><div class="tag">HERMES POCKET / SETUP</div><h1>Let's get connected</h1>
+<p>Save up to five home Wi-Fi networks. Pocket tests each new password before saving it.</p>
+<p id="session-status" role="status">Checking your setup session...</p>
+<button id="retry-status" type="button" class="secondary">Check status</button>
+<section aria-labelledby="saved-heading"><h2 id="saved-heading">Saved Wi-Fi</h2>
+<p id="connection" role="status">Checking Pocket's Wi-Fi...</p>
+<p id="hermes-note">Wi-Fi and Hermes availability are separate. If Pocket says Hermes is unreachable, check its bridge connection or pairing even when Wi-Fi is connected.</p>
+<p id="profile-count">Checking saved networks...</p><ul id="profiles" aria-label="Saved Wi-Fi networks"></ul>
+<small id="storage-note"></small></section>
+<section aria-labelledby="wifi-heading"><h2 id="wifi-heading">Add or update Wi-Fi</h2>
+<form id="wifi" novalidate>
+<label for="networks">Nearby networks - 2.4 GHz</label><select id="networks"><option value="">Choose a network...</option></select>
+<button id="scan" type="button" class="secondary" disabled>Scan Wi-Fi</button>
+<p id="netstatus" role="status">Scan for nearby networks, or type a hidden network's name below. Open networks are unsupported.</p>
+<label for="ssid">Network name</label><input id="ssid" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32" aria-describedby="ssid-help" placeholder="Select above, or type a hidden network">
+<small id="ssid-help">Use your router's Wi-Fi name, including spaces and capitals. Maximum 32 UTF-8 bytes.</small>
+<label for="password">Wi-Fi password</label><input id="password" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" maxlength="63" placeholder="Your home Wi-Fi password">
+<label><input id="showpass" type="checkbox">Show password</label>
+<button id="join" type="submit" disabled>Test and save Wi-Fi</button>
+</form><button id="cancel" type="button" class="secondary" disabled>Cancel Wi-Fi test</button>
+<p id="result" class="message" role="alert" aria-live="assertive"></p>
+<small>Existing Wi-Fi profiles and Hermes pairing stay saved if a test fails or is cancelled. To change a saved password, enter that network's name again.</small></section>
+<details><summary>Hermes pairing - optional</summary>
+<p id="pairing-state" role="status">Your existing pairing is preserved by default.</p>
+<p>Blank fields keep stored values. Only fields you enter here are updated when you tap Save Hermes pairing.</p>
+<form id="pairing" novalidate>
+<label for="windows">Windows bridge HTTPS address</label><input id="windows" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://your-bridge.example" maxlength="192">
+<label for="linux">Linux bridge HTTPS address</label><input id="linux" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://your-bridge.example" maxlength="192">
+<label for="token">Pocket pairing token</label><input id="token" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" maxlength="128">
+<label for="ca">Bridge CA certificate - optional</label><textarea id="ca" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="2048" rows="4"></textarea>
+<small>Use only your dedicated Pocket pairing token. Saved pairing values are never shown on this page.</small>
+<button id="pair-save" type="submit" disabled>Save Hermes pairing</button>
+<p id="pair-result" class="message" role="alert" aria-live="assertive"></p></form></details>
+<footer><small>The owner opens this secure setup hotspot for five minutes. Keep your phone on Pocket's hotspot while using this page. If setup expires, hold OK on Pocket to reopen it. When finished, reconnect your phone to your normal Wi-Fi.</small></footer></main>
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-const form=$('setup'),saveButton=$('save'),scanButton=$('scan'),status=$('result');
-const byteLength=s=>new TextEncoder().encode(s).length;
-function validateSettings(b){
- if(!b.ssid||byteLength(b.ssid)>31)return 'Choose your home Wi-Fi, or enter a network name of at most 31 bytes.';
- if(byteLength(b.password)<8||byteLength(b.password)>63)return 'Wi-Fi password must be 8–63 bytes. Enter your home router password.';
- for(const key of ['windows','linux'])if(b[key]&&(byteLength(b[key])>192||!/^https:\/\/[^\s@?#]+$/.test(b[key])))return 'Use an HTTPS bridge address, or leave the optional Hermes fields blank.';
- if(b.token&&(b.token.length<32||b.token.length>128||!/^[\x21-\x7e]+$/.test(b.token)))return 'Pocket pairing token must be 32–128 visible characters, or leave it blank.';
- if(byteLength(b.ca)>2048||(b.ca&&(!b.ca.startsWith('-----BEGIN CERTIFICATE-----')||!b.ca.includes('-----END CERTIFICATE-----'))))return 'Enter a valid PEM certificate, or leave the optional certificate blank.';
+const byteLength=value=>new TextEncoder().encode(value).length;
+const pairingFields=['windows','linux','token','ca'];
+let snapshot=null,reachable=false,expired=false,closed=false,statusBusy=false,actionBusy=false,pairBusy=false;
+let pollTimer=null,pending=null,scanPending=null,profileSignature='',networkSignature='',profileButtons=[],statusEpoch=0;
+const controllers=new Set();
+
+function validateWifi(body){
+ if(!body.ssid||byteLength(body.ssid)>32)return 'Enter a network name of 1-32 UTF-8 bytes.';
+ if(byteLength(body.password)<8||byteLength(body.password)>63)return 'Wi-Fi password must be 8-63 UTF-8 bytes. Enter your home router password.';
  return '';
 }
-async function request(path,options){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{return await fetch(path,{...options,signal:controller.signal,cache:'no-store'})}finally{clearTimeout(timer)}}
-function nonce(){return document.querySelector('meta[name="pocket-nonce"]').content}
+function validatePairing(body){
+ for(const key of ['windows','linux'])if(body[key]&&(byteLength(body[key])>192||!/^https:\/\/[^\s@?#]+$/.test(body[key])))return 'Use an HTTPS bridge address of at most 192 bytes, or leave that field blank to keep it.';
+ if(body.token&&(body.token.length<32||body.token.length>128||!/^[\x21-\x7e]+$/.test(body.token)))return 'Pocket pairing token must be 32-128 visible characters, or leave it blank to keep it.';
+ if(byteLength(body.ca)>2048||(body.ca&&(!body.ca.startsWith('-----BEGIN CERTIFICATE-----')||!body.ca.includes('-----END CERTIFICATE-----'))))return 'Enter a valid PEM certificate of at most 2048 bytes, or leave it blank to keep it.';
+ return '';
+}
+function clearPairing(){for(const key of pairingFields)$(key).value=''}
+function stopPolling(){clearTimeout(pollTimer);pollTimer=null}
+function expireSetup(){
+ expired=true;reachable=false;stopPolling();for(const controller of controllers)controller.abort();
+ $('password').value='';clearPairing();pending=null;scanPending=null;
+ $('session-status').textContent='Setup expired. Hold OK on Pocket to reopen setup, then reconnect to its hotspot.';
+ $('result').textContent='';$('pair-result').textContent='';updateControls();
+}
+async function request(path,body){
+ const controller=new AbortController();controllers.add(controller);
+ const timer=setTimeout(()=>controller.abort(),15000);
+ const options={headers:{'X-Pocket-Setup':document.querySelector('meta[name="pocket-nonce"]').content},cache:'no-store',signal:controller.signal};
+ if(body!==undefined){options.method='POST';options.headers['Content-Type']='application/json';options.body=JSON.stringify(body)}
+ try{const result=await fetch(path,options);if(result.status===403)expireSetup();return result}
+ finally{clearTimeout(timer);controllers.delete(controller)}
+}
+function updateControls(){
+ const blocked=closed||expired||!reachable||actionBusy||pairBusy;
+ const running=!!pending||!!snapshot&&snapshot.join_result===1;
+ const scanning=!!scanPending||!!snapshot&&snapshot.scan_state===1;
+ const writable=!!snapshot&&snapshot.store_writable;
+ $('join').disabled=blocked||running||scanning||!writable;
+ $('scan').disabled=blocked||running||scanning;
+ $('pair-save').disabled=blocked||running||scanning||!writable;
+ $('cancel').disabled=blocked||!running||!!pending&&pending.kind==='cancel';
+ $('retry-status').disabled=closed||expired||statusBusy;
+ for(const buttons of profileButtons){
+  buttons.connect.disabled=blocked||running||scanning||buttons.connected;
+  buttons.forget.disabled=blocked||running||scanning||!writable;
+ }
+}
+function renderProfiles(data){
+ $('profile-count').textContent=data.profiles.length+' / '+data.capacity+' saved networks';
+ $('storage-note').textContent=!data.store_writable?'Saved-settings storage is not writable. Saved networks can still connect; adding, forgetting, and pairing changes are unavailable.':
+  data.profiles.length>=data.capacity?'All '+data.capacity+' slots are full. Explicitly forget a network to add another. A saved network can still be retested with a new password. Nothing is automatically removed.':
+  'Pocket keeps existing profiles and Hermes pairing when you add another network. Nothing is automatically removed.';
+ const signature=JSON.stringify(data.profiles);if(signature===profileSignature)return;profileSignature=signature;
+ $('profiles').replaceChildren();profileButtons=[];
+ if(!data.profiles.length){const empty=document.createElement('li');empty.textContent='No saved networks yet. Add one below.';$('profiles').appendChild(empty)}
+ for(const profile of data.profiles){
+  const row=document.createElement('li'),name=document.createElement('strong'),note=document.createElement('small'),actions=document.createElement('div');
+  name.textContent=profile.ssid;note.textContent=profile.connected?'Connected now':'Saved on Pocket';actions.className='actions';
+  const connect=document.createElement('button'),forget=document.createElement('button');
+  connect.type=forget.type='button';connect.textContent=profile.connected?'Connected':'Connect';forget.textContent='Forget';
+  connect.className=forget.className='secondary';connect.setAttribute('aria-label','Connect to '+profile.ssid);forget.setAttribute('aria-label','Forget '+profile.ssid);
+  connect.addEventListener('click',()=>{if(!connect.disabled)return queueWifi('connect',{ssid:profile.ssid})});
+  forget.addEventListener('click',()=>{if(!forget.disabled&&window.confirm('Forget "'+profile.ssid+'" from Pocket? Its saved password will be removed. Hermes pairing will be kept.'))return queueWifi('forget',{ssid:profile.ssid})});
+  actions.appendChild(connect);actions.appendChild(forget);row.appendChild(name);row.appendChild(note);row.appendChild(actions);$('profiles').appendChild(row);
+  profileButtons.push({connect,forget,connected:profile.connected});
+ }
+}
+function renderNetworks(data){
+ if(scanPending&&scanPending.operation!==null&&data.operation<scanPending.operation)return;
+ if(data.scan_state===1){$('netstatus').textContent='Scanning nearby Wi-Fi...';return}
+ if(data.scan_state===3){scanPending=null;$('netstatus').textContent='Scan failed. Scan again, or type your network name below.';return}
+ if(data.scan_state===0){if(scanPending&&scanPending.operation===null){scanPending=null;$('netstatus').textContent='Could not confirm the scan. Scan again, or type your network name below.'}return}
+ if(data.scan_state!==2)return;
+ scanPending=null;const signature=JSON.stringify(data.networks);if(signature===networkSignature)return;networkSignature=signature;
+ const list=$('networks'),selected=list.value;list.replaceChildren();const first=document.createElement('option');first.value='';first.textContent='Choose a network...';list.appendChild(first);
+ for(const network of data.networks){const option=document.createElement('option');option.value=network.ssid;
+  option.textContent=network.ssid+' - '+(network.rssi>-60?'Strong':network.rssi>-75?'Fair':'Weak')+(network.open?' - Open network unsupported':'');
+  option.disabled=network.open;list.appendChild(option)}
+ list.value=data.networks.some(network=>network.ssid===selected&&!network.open)?selected:'';
+ $('netstatus').textContent=data.networks.length?'Select your network, then enter its password. You can also type a hidden network below.':'No networks found. Scan again, or type your network name below.';
+}
+function finishWifi(data){
+ if(!pending&&data.join_result===1)pending={kind:'observe',operation:data.operation};
+ if(!pending)return;
+ if(pending.operation===null){
+  if(data.join_result===1){pending.observed=data.operation;return}
+  if(data.operation>pending.baseline||pending.observed===data.operation){pending=null;$('result').textContent='Could not confirm the requested action. Check the saved list and Wi-Fi status before trying again. No settings were automatically resubmitted.'}
+  return;
+ }
+ if(data.operation<pending.operation)return;
+ if(data.operation!==pending.operation){pending=null;$('result').textContent='Could not confirm completion because another Wi-Fi operation started. Check the saved list and Wi-Fi status before trying again.';return}
+ if(data.join_result===0)return;
+ if(data.join_result===1){$('result').textContent=pending.kind==='join'?'Testing Wi-Fi before saving. Existing profiles and Hermes pairing stay saved.':
+  pending.kind==='connect'?'Connecting to saved Wi-Fi...':pending.kind==='cancel'?'Cancelling Wi-Fi test. Waiting for confirmation...':
+  pending.kind==='forget'?'Removing saved network. Waiting for confirmation...':'A Wi-Fi operation is running on Pocket. Wait for confirmation or cancel.';return}
+ const kind=pending.kind;pending=null;
+ const kept=' Existing saved Wi-Fi profiles and Hermes pairing were kept.';
+ const failure=['The Wi-Fi test failed.','The Wi-Fi test failed.','The Wi-Fi test failed.','The Wi-Fi test failed.',
+  'Network not found. Check the name, 2.4 GHz coverage, and signal.','Wi-Fi password was rejected. Check the router password.',
+  'Wi-Fi connected without an IP address. Check your router and try again.','Wi-Fi connection failed. Check the router and try again.'];
+ if(data.join_result===2)$('result').textContent=kind==='connect'?'Connected to saved Wi-Fi. Hermes pairing was kept.':
+  kind==='forget'||kind==='cancel'?'Could not confirm the requested action. Check the saved list and Wi-Fi status.':'Wi-Fi tested and saved. Hermes pairing was kept. You can add another network or finish setup.';
+ else if(data.join_result===3)$('result').textContent=failure[data.connection]+kept+' Enter the password again to retry.';
+ else if(data.join_result===4)$('result').textContent='Wi-Fi test cancelled.'+kept+' Check the connection status above while Pocket restores its previous Wi-Fi.';
+ else if(data.join_result===5)$('result').textContent='The saved Wi-Fi list is full. Explicitly forget a network before adding another.'+kept;
+ else if(data.join_result===6)$('result').textContent='Could not confirm saving the requested change. Check saved networks before retrying. Hermes pairing was kept.';
+ else if(data.join_result===7)$('result').textContent='Saved network forgotten. Hermes pairing was kept.';
+}
+function renderStatus(data){
+ snapshot=data;reachable=true;
+ if(data.expires_seconds<=0){expireSetup();return}
+ $('session-status').textContent='Setup hotspot closes in about '+Math.ceil(data.expires_seconds/60)+' minute(s). Keep your phone on Pocket\'s hotspot.';
+ const connection=['Wi-Fi is disconnected.','Connecting to Wi-Fi...','Getting an IP address...',
+  'Wi-Fi connected.','Wi-Fi network not found.','Wi-Fi password was rejected.','Wi-Fi has no IP address.','Wi-Fi connection failed.'];
+ $('connection').textContent=data.connected?'Wi-Fi connected to '+data.ssid+'.':connection[data.connection]||'Checking Wi-Fi status...';
+ $('pairing-state').textContent=data.pairing_saved?'Saved Hermes pairing is preserved. Blank fields keep its stored values.':'No Hermes pairing is saved yet. You can set up Wi-Fi first.';
+ renderProfiles(data);renderNetworks(data);finishWifi(data);
+}
+async function pollStatus(){
+ if(expired||closed||statusBusy)return;stopPolling();statusBusy=true;updateControls();
+ // Only a GET started after the queue request settles can confirm its action.
+ const epoch=statusEpoch;
+ try{const result=await request('/wifi/status');if(expired||closed||epoch!==statusEpoch||actionBusy)return;if(result.status!==200)throw new Error('status unavailable');
+  const data=await result.json();if(closed||expired||epoch!==statusEpoch||actionBusy)return;
+  if(!data||!Array.isArray(data.profiles)||!Array.isArray(data.networks)||data.capacity!==5||!Number.isInteger(data.operation))throw new Error('invalid status');
+  renderStatus(data);
+ }catch(error){if(!expired&&!closed&&epoch===statusEpoch&&!actionBusy){reachable=false;$('session-status').textContent='Cannot reach Pocket. Reconnect to its setup hotspot, then check status. No settings will be automatically resubmitted.';
+  if(pending)$('result').textContent='Could not confirm completion of this Wi-Fi action. Pocket may still be testing or saving. Reconnect to its hotspot and check status. No settings will be automatically resubmitted.'}}
+ finally{statusBusy=false;updateControls();if(!expired&&!closed)pollTimer=setTimeout(()=>pollStatus(),1500)}
+}
+async function queueWifi(kind,body){
+ if(expired||closed||!reachable||actionBusy||pairBusy)return;
+ const running=!!pending||snapshot.join_result===1,scanning=!!scanPending||snapshot.scan_state===1;
+ if(kind==='cancel'?!running||pending&&pending.kind==='cancel':running||scanning)return;
+ if((kind==='join'||kind==='forget')&&!snapshot.store_writable)return;
+ const baseline=snapshot.operation;actionBusy=true;statusEpoch++;updateControls();
+ $('result').textContent=kind==='join'?'Sending Wi-Fi test request...':kind==='connect'?'Connecting to saved Wi-Fi...':kind==='forget'?'Requesting network removal...':'Requesting cancellation...';
+ try{const result=await request('/wifi/'+kind,body);if(expired||closed)return;
+  if(!result.ok){$('result').textContent=(await result.text())+' Check the fields or Wi-Fi status before trying again.';return}
+  if(result.status!==202)throw new Error('acceptance uncertain');
+  const data=await result.json();if(data.accepted!==true||!Number.isInteger(data.operation))throw new Error('acceptance uncertain');
+  pending={kind,operation:data.operation};if(kind==='join')$('password').value='';
+  $('result').textContent=kind==='join'?'Testing Wi-Fi before saving. Existing profiles and Hermes pairing stay saved.':
+   kind==='connect'?'Connecting to saved Wi-Fi...':kind==='forget'?'Removing saved network. Waiting for confirmation...':'Cancelling Wi-Fi test. Waiting for confirmation...';
+ }catch(error){if(!expired&&!closed){if(kind==='join')$('password').value='';pending={kind,operation:null,baseline};
+  $('result').textContent='Could not confirm whether Pocket accepted this action. Check status or cancel before trying again. No settings will be automatically resubmitted.'}}
+ finally{actionBusy=false;statusEpoch++;updateControls()}
+}
 $('showpass').addEventListener('change',()=>{$('password').type=$('showpass').checked?'text':'password'});
-$('networks').addEventListener('change',()=>{if($('networks').value){$('ssid').value=$('networks').value;$('password').focus()}});
-scanButton.addEventListener('click',async()=>{scanButton.disabled=true;$('netstatus').textContent='Scanning nearby Wi-Fi…';try{const r=await request('/networks',{headers:{'X-Pocket-Setup':nonce()}});if(!r.ok)throw new Error(await r.text());const data=await r.json();const list=$('networks');list.replaceChildren();const first=document.createElement('option');first.value='';first.textContent='Choose a network…';list.appendChild(first);for(const n of data.networks){const o=document.createElement('option');o.value=n.ssid;o.textContent=n.ssid+' · '+(n.rssi>-60?'Strong':n.rssi>-75?'Fair':'Weak')+(n.open?' · Open network unsupported':'');o.disabled=n.open;list.appendChild(o)}$('netstatus').textContent=data.networks.length?'Select your network, then enter its password.':'No networks found. Scan again, or type the name below.'}catch(e){$('netstatus').textContent='Scan unavailable. You can type your network name below. '+e.message}finally{scanButton.disabled=false}});
-form.addEventListener('submit',async e=>{e.preventDefault();if(saveButton.disabled)return;const b={};for(const key of ['ssid','password','windows','linux','token','ca'])b[key]=$(key).value;if(validateSettings(b)){status.textContent=validateSettings(b);return}status.textContent='Saving settings…';saveButton.disabled=true;scanButton.disabled=true;try{const r=await request('/save',{method:'POST',headers:{'Content-Type':'application/json','X-Pocket-Setup':nonce()},body:JSON.stringify(b)});const text=await r.text();if(!r.ok){status.textContent=text+'\nCheck the fields and try again. If setup expired, hold OK on Pocket and reconnect.';saveButton.disabled=false;scanButton.disabled=false;return}status.textContent='';$('saved').textContent='Saved! Pocket is restarting. Reconnect your phone to your normal Wi-Fi and check Pocket’s screen.';saveButton.textContent='Saved · restarting';$('password').value='';$('token').value=''}catch(e){status.textContent='Could not confirm saving. Check Pocket’s screen. If it did not restart, reconnect to its setup hotspot and try again.';saveButton.disabled=false;scanButton.disabled=false}});
+$('networks').addEventListener('change',()=>{
+ const selected=$('networks').value;if(selected&&snapshot&&snapshot.networks.some(network=>network.ssid===selected&&!network.open)){$('ssid').value=selected;$('password').focus()}
+});
+$('scan').addEventListener('click',async()=>{
+ if($('scan').disabled)return;actionBusy=true;updateControls();$('netstatus').textContent='Scanning nearby Wi-Fi...';
+ try{const result=await request('/networks');if(expired||closed)return;
+  if(!result.ok){$('netstatus').textContent=(await result.text())+' You can type your network name below.';return}
+  if(result.status!==202)throw new Error('scan uncertain');const data=await result.json();
+  if(data.accepted!==true||!Number.isInteger(data.operation))throw new Error('scan uncertain');scanPending={operation:data.operation};networkSignature='';
+ }catch(error){if(!expired&&!closed){scanPending={operation:null};$('netstatus').textContent='Could not confirm the scan. Check status, or type your network name below.'}}
+ finally{actionBusy=false;updateControls()}
+});
+$('wifi').addEventListener('submit',event=>{
+ event.preventDefault();if($('join').disabled)return;const body={ssid:$('ssid').value,password:$('password').value};const error=validateWifi(body);
+ if(error){$('result').textContent=error;return}
+ if(snapshot.profiles.length>=snapshot.capacity&&!snapshot.profiles.some(profile=>profile.ssid===body.ssid)){$('result').textContent='The saved Wi-Fi list is full. Explicitly forget a network before adding another. Nothing was removed.';return}
+ return queueWifi('join',body);
+});
+$('cancel').addEventListener('click',()=>{if(!$('cancel').disabled)return queueWifi('cancel',{})});
+$('retry-status').addEventListener('click',()=>{if(!$('retry-status').disabled)return pollStatus()});
+$('pairing').addEventListener('submit',async event=>{
+ event.preventDefault();if($('pair-save').disabled)return;const body={};for(const key of pairingFields)body[key]=$(key).value;
+ const error=validatePairing(body);if(error){$('pair-result').textContent=error;return}
+ if(pairingFields.every(key=>!body[key])){$('pair-result').textContent='Existing Hermes pairing kept unchanged. Enter a field only when you want to update it.';return}
+ pairBusy=true;updateControls();$('pair-result').textContent='Saving Hermes pairing...';
+ try{const result=await request('/pairing',body);if(expired||closed)return;
+  if(!result.ok){$('pair-result').textContent=(await result.text())+' Check the optional fields before trying again.';return}
+  if(result.status!==200)throw new Error('pairing uncertain');clearPairing();$('pair-result').textContent='Hermes pairing saved. Fields left blank kept their stored values.';
+ }catch(error){if(!expired&&!closed){clearPairing();$('pair-result').textContent='Could not confirm saving Hermes pairing. Check Pocket before entering these values again. No pairing values will be automatically resubmitted.'}}
+ finally{pairBusy=false;updateControls()}
+});
+window.addEventListener('pagehide',()=>{closed=true;stopPolling();for(const controller of controllers)controller.abort();$('password').value='';clearPairing();updateControls()});
+window.addEventListener('pageshow',()=>{if(closed&&!expired){closed=false;reachable=false;return pollStatus()}});
+updateControls();pollStatus();
 </script></html>

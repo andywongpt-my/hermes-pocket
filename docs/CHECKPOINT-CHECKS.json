@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-18",
+  "type": "source checkpoint; not a release",
+  "checks": {
+    "root": {
+      "tests": 427,
+      "failures": 0,
+      "errors": 0,
+      "skips": 8,
+      "simulator_passed": true,
+      "external_network_or_live_command_attempts": 0
+    },
+    "quota": {
+      "tests": 385,
+      "failures": 0,
+      "errors": 0,
+      "skips": 13,
+      "simulator_passed": true,
+      "external_network_or_live_command_attempts": 0
+    },
+    "claude": {
+      "tests": 77,
+      "failures": 0,
+      "errors": 0,
+      "skips": 22,
+      "simulator_passed": null,
+      "external_network_or_live_command_attempts": 0
+    },
+    "producers": {
+      "tests": 128,
+      "failures": 0,
+      "errors": 15,
+      "skips": 22,
+      "simulator_passed": null,
+      "external_network_or_live_command_attempts": 0
+    }
+  },
+  "wifi_adapter": {
+    "tests": 24,
+    "passed": true,
+    "old_source_expected_regression_failed": true
+  },
+  "firmware": {
+    "offline_build_passed": true,
+    "sdkconfig_unchanged": true,
+    "source_files": 83,
+    "app_bytes": 2422960,
+    "app_sha256": "38248585ade1b91b804c405d273e2997a08f902efa9419a35ba815805adcb5d2",
+    "app_within_recorded_3MiB_partition": true,
+    "snapshots": 104,
+    "hardware_tested": false,
+    "binary_published": false
+  },
+  "known_incomplete": [
+    "operations require omitted private acceptance/manifest fixtures",
+    "Ollama mock suite import requires unavailable httpx; no dependency installed",
+    "Codex producer absent; pending acceptance suite not run",
+    "Linux-only PTY/permission/process tests not rerun on Linux",
+    "no corrected physical Wi-Fi/clock acceptance",
+    "quota020 undeployed and inactive",
+    "Funnel not configured"
+  ],
+  "device_or_service_actions": false,
+  "paid_provider_requests": 0
+}

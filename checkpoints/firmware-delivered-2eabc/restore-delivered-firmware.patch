@@ -1,0 +1,2107 @@
+diff --git b/firmware/README.md a/firmware/README.md
+index 6ee1b97..9c48a45 100644
+--- b/firmware/README.md
++++ a/firmware/README.md
+@@ -1,40 +1,122 @@
+-# Firmware source checkpoint
++# Integrated firmware candidate
+ 
+ Target: FoloToy AI Passport, ESP32-C3, 8 MB flash, no PSRAM.
+-Toolchain: ESP-IDF 5.5.3 and the pinned `dependencies.lock` components.
+-
+-This source contains five-network Wi-Fi and the MYT clock plus an initial-connect
+-correction. It is **not the delivered device firmware**. The device was restored
+-to `2eabc4600d6dc6fc2c2033870ab7121b4e3b0bb4` after candidate `556e897` failed
+-physical reconnect. Publication performs no serial access, reset or flash.
+-
+-The old adapter waited for a callback after an idle station's successful
+-`esp_wifi_disconnect()`, but that callback is not guaranteed. It now checks
+-association first: idle can proceed, a live association still requires its fresh
+-callback, and an unexpected query error fails closed. The fake now defaults to
+-idle `ESP_OK` without an event and retains the explicit disconnected-code case.
+-The corrected source has no physical acceptance yet.
+-
+-Candidate setup requires the physical owner gesture; it does not start
+-automatically at boot. Its protected hotspot accepts one client for five minutes.
+-Fresh association/IP is required before saving one of five profiles; Wi-Fi and
+-Hermes pairing storage remain separate. No automatic eviction occurs.
+-See [candidate Wi-Fi behavior](../docs/WIFI_NETWORKS.md).
+-
+-Candidate Home time uses fixed MYT (UTC+08:00) after current-boot SNTP sync.
+-Until then it shows `Waiting for time (MYT)`. It reuses the existing time source,
+-continues offline after sync and renders only while awake. Physical checks remain
+-pending. Existing controls, diagnostics, full replies, recorded Usage, CJK font,
+-voice memory/transport corrections and standby lifecycle are preserved in source.
+-
+-In an existing ESP-IDF 5.5.3 environment:
+-
+-```sh
+-idf.py build
+-idf.py size
+-```
+-
+-Host checks are in the root README. Build, synthetic boundary tests and physical
+-acceptance are separate evidence; see [verification](../docs/VERIFICATION.md).
+-This checkpoint includes no images or flash command. TLS certificate/hostname
+-verification remains enabled; uncertain work is not automatically resubmitted.
++Toolchain: official ESP-IDF 5.5.3 with pinned managed components.
++The animated cat/battery/screen-standby firmware has been built and app-only flashed.
++Validation status for this increment is listed below.
++
++The current controls, debug and voice transport candidate passed app-only
++flash/readback and idle boot checks.
++Authenticated Linux status returned HTTP 200 with the backend available over
++verified HTTPS. Physical display/button acceptance, live text tasks and end-to-end
++voice remain unverified. The checked Linux bridge advertises configured STT/TTS;
++capabilities alone do not establish microphone or playback success.
++
++UP/DOWN changes Home / Chat / Usage / Diagnostics / Tasks / Tools / Audio /
++Alerts / Screen pages. On Home, click OK to select and save Windows/Linux; hold OK for phone setup. On Chat, hold OK until Listening appears,
++speak, then release to send. Press OK while waiting or playing to stop waiting or
++playback. UP during recording discards capture. This does not cancel a task already running in Hermes. Approval-required
++or uncertain outcomes direct the owner to the trusted Hermes interface.
++
++The screen lives in `main/pocket_ui.c`, pure LVGL with no ESP-IDF calls. An
++animated cartoon tabby shows the agent's mood: idle (blinks, glances, swishes
++its tail), listening (ears up, wide eyes), thinking (thought bubble), speaking
++(happy eyes, chattering mouth) and sleepy (Hermes offline or Screen page). It is
++drawn with LVGL primitives at about 8 frames per second, only while visible, and
++pauses with the backlight. The header shows page dots and a battery icon plus a
++percentage read from the board's CW2017 fuel gauge. `N/A` means the gauge could not initialize or its
++latest reading failed; there is no voltage-derived or placeholder percentage.
++Readings refresh every 30 seconds in a separate low-priority task. Failed gauge
++initialization is retried there, without blocking button handling. The first
++initialization attempt finishes before button callbacks are enabled. If the
++monitor task cannot start, the UI shows `N/A` instead of retaining a stale value.
++The gauge uses the BSP's existing battery
++profile, so accuracy still depends on the correct cell/profile for this board.
++
++Select Screen with UP/DOWN, then click OK on Screen off. This turns off the
++backlight and stops periodic UI redraws while keeping Wi-Fi and existing jobs
++running. It is not deep sleep. Press any button to restore the display. The
++entire wake hold/release and delayed click are ignored, so waking cannot select
++an agent, enter setup, record audio, change page or immediately turn off again.
++Release the wake button, then use a fresh press to interact normally.
++
++The combined controls/debug firmware passed ESP-IDF compilation, app-only flashing
++at 0x10000 and independent flash verification. Boot reached app_main, reported
++Linux status HTTP 200 and successfully decoded all unconfigured Usage providers.
++No fatal errors or Wi-Fi drops were observed in the bounded check. Settings
++partitions were not written. This does not establish visual, battery-accuracy, button or voice
++acceptance. See `../docs/DEVICE-UI-ACCEPTANCE.md` for that checklist.
++
++First boot without saved Wi-Fi starts phone setup. Join the displayed temporary
++Wi-Fi using its random password, open http://192.168.4.1, and enter Wi-Fi settings,
++bridge HTTPS addresses, dedicated Pocket token and optionally the bridge CA PEM.
++The setup window lasts five minutes, supports one phone, and rejects requests
++received via the ordinary station interface. Saving restarts the device.
++
++NVS settings are not encrypted. Keep the device physically secure. Do not put
++provider/API/dashboard credentials on the device. Empty pairing token removes
++pairing. Earlier Wi-Fi/address settings migrate without erasing NVS.
++
++The client verifies TLS certificates/hostnames and waits for network time. It does
++not retry uncertain audio submissions. PCM recording is bounded to 30 seconds;
++slow network capture fails visibly instead of silently discarding speech frames.
++The transport candidate enables TCP_NODELAY and temporarily requests an awake
++Wi-Fi radio while capturing/uploading, then restores its exact previous power
++mode before finish/provider waits and on failures. Failed restoration retains
++the original mode for worker recovery and blocks finish. The four-frame queue
++and 22,000-byte audio budget are unchanged. Successful reused chunks no longer
++walk the heap or print per-chunk diagnostics. Boundary/failure measurements
++remain; a deferred numeric summary reports common-origin HTTP phases and
++separate heap/perform/callback/wrapper JSON/logging costs. Presence flags mark
++skipped measurements. SDK perform includes transport and scheduling/event waits;
++these logs do not establish a unique physical root cause. The preceding owner
++recording still overflowed its queue with a 246 ms maximum upload. Physical
++improvement and a complete voice round trip require an owner-triggered recording.
++Audio queues, buffers and the recorder task are allocated only after STT and
++held-button checks, then released after capture/use. Status polling keeps its
++connection/response buffers without reserving inactive audio memory needed by TLS.
++Transcription and reply synthesis happen through the configured host bridge.
++Both targets may use the Linux voice service, but chat/task state stays separate.
++
++Tasks shows at most twelve device-scoped Pocket tasks and a selected 768-byte
++UTF-8 result preview. Hold OK to refresh; short OK selects the next task. Real
++states include approval and unknown outcomes; there is no invented progress
++percentage. Tools queues only existing read-only Status, Usage and Task GETs.
++Todo remains unavailable without a supported source.
++
++On Audio, OK enters/exits volume editing; UP/DOWN changes 0â€“100 while editing.
++On Alerts, OK cycles 80%, 90% and off for percentages; hold OK toggles the
++independent, labeled $1 low-credit threshold. Alerts require fresh available Usage samples and never invent account
++data. Reset notices require a fresh next-period sample. Target selection survives
++reboot through a separate validated NVS key; volume, alert choices and reminder
++deduplication last for the current device session.
++
++Known limits: source-level integration is not proof of live compatibility.
++Usage sources are not connected. The bundled font covers common CJK glyphs only.
++Approval and full results/transcript history remain on the bridge/Hermes host.
++Physical display/buttons, cross-reboot target acceptance and end-to-end voice
++remain separate acceptance checks. See ../docs/VERIFICATION.md for build/flash evidence.
++
++Build in an activated official ESP-IDF 5.5.3 environment:
++
++    idf.py set-target esp32c3
++    idf.py build
++
++UI snapshots render `pocket_ui.c` on a host computer with the device's LVGL
++version and 24 KB memory pool, so layout and memory regressions show up without
++hardware. With gcc and an LVGL 9.5.0 checkout:
++
++    LVGL_DIR=/path/to/lvgl POCKET_SNAPSHOT_DIR=/tmp/shots python3 -m unittest discover -s tests -p test_firmware_host.py
++
++CI also builds the firmware with ESP-IDF 5.5.3 and uploads the snapshots.
++
++Do not overwrite a working installation assuming all V1 features are complete.
++Use candidate split images only; do not erase flash or write across the NVS gap.
++
++BSP: FoloToy/ai-passport commit a9320ab6eaa21b90759a4a22d1039092385f24dd,
++MIT notice retained. Dependencies and font notices are in ../docs/licenses and
++../docs/THIRD-PARTY-NOTICES.md.
++
++The combined app retains target-scoped TLS/verify/heap, voice capture reason,
++request stage/timing/queue and numeric Usage parsing diagnostics. Logs omit
++credentials, audio, transcription/reply bodies and real account values.
+diff --git b/firmware/core/pocket_clock.c a/firmware/core/pocket_clock.c
+deleted file mode 100644
+index ed3b837..0000000
+--- b/firmware/core/pocket_clock.c
++++ /dev/null
+@@ -1,102 +0,0 @@
+-#include "pocket_clock.h"
+-#include <stdatomic.h>
+-
+-static atomic_bool synchronized_clock = ATOMIC_VAR_INIT(false);
+-
+-#define MIN_UTC_SECONDS INT64_C(1704067200)
+-#define MAX_UTC_SECONDS INT64_C(253402300799)
+-#define MYT_OFFSET_SECONDS INT64_C(28800)
+-#define DAY_SECONDS INT64_C(86400)
+-
+-static bool valid_utc(int64_t utc_seconds) {
+-    return utc_seconds >= MIN_UTC_SECONDS && utc_seconds <= MAX_UTC_SECONDS;
+-}
+-
+-static bool leap_year(unsigned year) {
+-    return year % 4u == 0u && (year % 100u != 0u || year % 400u == 0u);
+-}
+-
+-static void waiting_text(char *out, size_t cap) {
+-    static const char waiting[] = "Waiting for time (MYT)";
+-    if (!out || cap == 0) return;
+-    size_t i = 0;
+-    while (waiting[i] != '\0' && i + 1 < cap) {
+-        out[i] = waiting[i];
+-        ++i;
+-    }
+-    out[i] = '\0';
+-}
+-
+-static void two_digits(char *out, unsigned value) {
+-    out[0] = (char)('0' + value / 10u);
+-    out[1] = (char)('0' + value % 10u);
+-}
+-
+-void pocket_clock_reset(void) {
+-    atomic_store_explicit(&synchronized_clock, false, memory_order_relaxed);
+-}
+-
+-void pocket_clock_note_sync(int64_t utc_seconds) {
+-    if (valid_utc(utc_seconds))
+-        atomic_store_explicit(&synchronized_clock, true, memory_order_relaxed);
+-}
+-
+-bool pocket_clock_ready(void) {
+-    return atomic_load_explicit(&synchronized_clock, memory_order_relaxed);
+-}
+-
+-bool pocket_clock_format(int64_t utc_seconds, bool synchronized,
+-                         char *out, size_t cap) {
+-    static const char months[12][4] = {
+-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+-    };
+-    static const unsigned char month_days[12] = {
+-        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+-    };
+-    waiting_text(out, cap);
+-    if (!out || cap < 22 || !synchronized || !valid_utc(utc_seconds) ||
+-        utc_seconds > INT64_MAX - MYT_OFFSET_SECONDS)
+-        return false;
+-    const int64_t local_seconds = utc_seconds + MYT_OFFSET_SECONDS;
+-    if (local_seconds > MAX_UTC_SECONDS) return false;
+-
+-    /* Gregorian calendars repeat every 400 years (146097 days). Skipping
+-     * complete cycles bounds the remaining year walk to at most 399 steps. */
+-    uint32_t days = (uint32_t)((local_seconds - MIN_UTC_SECONDS) / DAY_SECONDS);
+-    unsigned year = 2024u + (days / 146097u) * 400u;
+-    days %= 146097u;
+-    for (;;) {
+-        const unsigned length = leap_year(year) ? 366u : 365u;
+-        if (days < length) break;
+-        days -= length;
+-        ++year;
+-    }
+-    unsigned month = 0;
+-    while (month < 11u) {
+-        const unsigned length = month_days[month] +
+-            ((month == 1u && leap_year(year)) ? 1u : 0u);
+-        if (days < length) break;
+-        days -= length;
+-        ++month;
+-    }
+-    const unsigned day_seconds = (unsigned)(local_seconds % DAY_SECONDS);
+-    two_digits(out, (unsigned)days + 1u);
+-    out[2] = ' ';
+-    for (unsigned i = 0; i < 3u; ++i) out[3u + i] = months[month][i];
+-    out[6] = ' ';
+-    out[7] = (char)('0' + year / 1000u);
+-    out[8] = (char)('0' + year / 100u % 10u);
+-    out[9] = (char)('0' + year / 10u % 10u);
+-    out[10] = (char)('0' + year % 10u);
+-    out[11] = ' ';
+-    two_digits(out + 12, day_seconds / 3600u);
+-    out[14] = ':';
+-    two_digits(out + 15, day_seconds / 60u % 60u);
+-    out[17] = ' ';
+-    out[18] = 'M';
+-    out[19] = 'Y';
+-    out[20] = 'T';
+-    out[21] = '\0';
+-    return true;
+-}
+diff --git b/firmware/core/pocket_clock.h a/firmware/core/pocket_clock.h
+deleted file mode 100644
+index cebe10a..0000000
+--- b/firmware/core/pocket_clock.h
++++ /dev/null
+@@ -1,23 +0,0 @@
+-#ifndef POCKET_CLOCK_H
+-#define POCKET_CLOCK_H
+-
+-#include <stdbool.h>
+-#include <stddef.h>
+-#include <stdint.h>
+-
+-/* Reset once at boot. Invalid or repeated synchronization reports do not
+- * clear a previously valid boot-session synchronization latch. */
+-void pocket_clock_reset(void);
+-void pocket_clock_note_sync(int64_t utc_seconds);
+-bool pocket_clock_ready(void);
+-
+-/* Format a validated UTC epoch as DD Mon YYYY HH:MM MYT using fixed UTC+8.
+- * No timezone globals, DST, SDK, clock reads, or sync-latch changes occur.
+- * UTC input must be in years 2024..9999 and its MYT date must remain <=9999.
+- * A valid display needs capacity >=22. On failure write the waiting message,
+- * truncated safely if necessary; a non-NULL output is always NUL terminated
+- * when capacity >0. NULL or zero-capacity output returns false without writes. */
+-bool pocket_clock_format(int64_t utc_seconds, bool synchronized,
+-                         char *out, size_t cap);
+-
+-#endif
+diff --git b/firmware/core/pocket_wifi.c a/firmware/core/pocket_wifi.c
+deleted file mode 100644
+index 1e36b65..0000000
+--- b/firmware/core/pocket_wifi.c
++++ /dev/null
+@@ -1,182 +0,0 @@
+-/* MIT. One radio owner, fresh-event admission, no healthy roaming or eviction. */
+-#include "pocket_wifi.h"
+-#include <string.h>
+-
+-enum { IDLE,DISCONNECTING,CONNECTING,STABLE,STOPPING };
+-static size_t bounded(const char *value,size_t capacity){
+- const char *end=value?memchr(value,0,capacity):NULL;
+- return end?(size_t)(end-value):capacity;
+-}
+-bool pocket_wifi_profile_valid(const pocket_wifi_profile *p){
+- if(!p)return false;
+- size_t ssid=bounded(p->ssid,sizeof p->ssid),password=bounded(p->password,sizeof p->password);
+- if(!ssid || ssid>32 || password<8 || password>63)return false;
+- for(size_t i=0;i<ssid;i++)if((unsigned char)p->ssid[i]<32 || (unsigned char)p->ssid[i]==127)return false;
+- return true;
+-}
+-void pocket_wifi_book_init(pocket_wifi_book *b){memset(b,0,sizeof *b);b->version=1;}
+-bool pocket_wifi_book_valid(const pocket_wifi_book *b){
+- if(!b || b->version!=1 || b->count>POCKET_WIFI_CAPACITY || b->reserved[0] || b->reserved[1]
+-  || (b->count?b->last>=b->count:b->last!=0))return false;
+- for(unsigned i=0;i<b->count;i++){
+-  if(!pocket_wifi_profile_valid(&b->profiles[i]))return false;
+-  for(unsigned j=0;j<i;j++)if(!strcmp(b->profiles[i].ssid,b->profiles[j].ssid))return false;
+- }
+- return true;
+-}
+-int pocket_wifi_book_find(const pocket_wifi_book *b,const char *ssid){
+- if(!b || !ssid || bounded(ssid,33)>32)return -1;
+- for(unsigned i=0;i<b->count && i<POCKET_WIFI_CAPACITY;i++)if(!strcmp(b->profiles[i].ssid,ssid))return (int)i;
+- return -1;
+-}
+-int pocket_wifi_book_put(pocket_wifi_book *b,const pocket_wifi_profile *p){
+- if(!pocket_wifi_book_valid(b) || !pocket_wifi_profile_valid(p))return -1;
+- int index=pocket_wifi_book_find(b,p->ssid);
+- if(index<0){if(b->count==POCKET_WIFI_CAPACITY)return -1;index=b->count++;}
+- b->profiles[index]=*p;b->last=(uint8_t)index;return index;
+-}
+-bool pocket_wifi_book_import(pocket_wifi_book *b,const pocket_wifi_profile *p){
+- if(!b || b->count || b->sequence)return false;
+- return pocket_wifi_book_put(b,p)==0;
+-}
+-int pocket_wifi_choose(const pocket_wifi_book *b,const pocket_wifi_visible *seen,size_t count,unsigned tried){
+- if(!pocket_wifi_book_valid(b) || !b->count || (!seen && count))return -1;
+- int choice=-1,strongest=-1000;
+- for(unsigned i=0;i<b->count;i++){
+-  if(tried&(1u<<i))continue;
+-  for(size_t j=0;j<count && j<POCKET_WIFI_SCAN_MAX;j++){
+-   if(seen[j].open || !memchr(seen[j].ssid,0,sizeof seen[j].ssid) || strcmp(b->profiles[i].ssid,seen[j].ssid))continue;
+-   if(i==b->last)return (int)i;
+-   if(seen[j].rssi>strongest){choice=(int)i;strongest=seen[j].rssi;}
+-  }
+- }
+- if(choice>=0)return choice;
+- /* Hidden networks do not appear in scans: give each saved SSID one bounded try. */
+- if(!(tried&(1u<<b->last)))return b->last;
+- for(unsigned i=0;i<b->count;i++)if(!(tried&(1u<<i)))return (int)i;
+- return -1;
+-}
+-void pocket_wifi_init(pocket_wifi_engine *e,const pocket_wifi_book *b,const pocket_wifi_ops *ops){
+- memset(e,0,sizeof *e);pocket_wifi_book_init(&e->book);
+- if(pocket_wifi_book_valid(b))e->book=*b;
+- if(ops)e->ops=*ops;
+- e->selected=-1;e->backoff_ms=10000;
+-}
+-static bool persist(pocket_wifi_engine *e,pocket_wifi_book *next){
+- next->sequence=e->book.sequence+1;if(!next->sequence)next->sequence=1;
+- if(!e->ops.save || !e->ops.save(e->ops.context,next))return false;
+- e->book=*next;return true;
+-}
+-static void restore(pocket_wifi_engine *e,int64_t now){
+- e->testing=false;memset(&e->attempt,0,sizeof e->attempt);
+- e->phase=IDLE;e->selected=-1;e->tried=0;e->retry_ms=now+1000;
+-}
+-static void stop_attempt(pocket_wifi_engine *e,int64_t now,const pocket_wifi_snapshot *s){
+- e->disconnect_base=s->disconnected;e->association_base=s->associated;e->ip_base=s->got_ip;
+- e->phase=STOPPING;e->deadline_ms=now+3000;
+- int result=e->ops.disconnect?e->ops.disconnect(e->ops.context):-1;
+- if(result==1)e->phase=IDLE;
+-}
+-static void failed(pocket_wifi_engine *e,int64_t now,const pocket_wifi_snapshot *s,pocket_wifi_connection reason){
+- e->connection=reason;
+- if(e->testing){e->join_result=POCKET_WIFI_JOIN_FAILED;restore(e,now);}
+- else {memset(&e->attempt,0,sizeof e->attempt);e->phase=IDLE;e->selected=-1;e->retry_ms=now+1000;}
+- stop_attempt(e,now,s);
+-}
+-static void connect_now(pocket_wifi_engine *e,int64_t now,const pocket_wifi_snapshot *s){
+- e->disconnect_base=s->disconnected;e->association_base=s->associated;e->ip_base=s->got_ip;
+- e->phase=CONNECTING;e->deadline_ms=now+POCKET_WIFI_CONNECT_MS;e->connection=POCKET_WIFI_CONNECTING;
+- if(!e->ops.connect || !e->ops.connect(e->ops.context,&e->attempt))failed(e,now,s,POCKET_WIFI_CONNECTION_FAILED);
+-}
+-static void start(pocket_wifi_engine *e,int64_t now,const pocket_wifi_snapshot *s){
+- e->disconnect_base=s->disconnected;e->phase=DISCONNECTING;e->connection=POCKET_WIFI_CONNECTING;e->deadline_ms=now+3000;
+- int result=e->ops.disconnect?e->ops.disconnect(e->ops.context):-1;
+- if(result==1)connect_now(e,now,s);
+- else if(result<0)failed(e,now,s,POCKET_WIFI_CONNECTION_FAILED);
+-}
+-bool pocket_wifi_join(pocket_wifi_engine *e,const pocket_wifi_profile *p,int64_t now,const pocket_wifi_snapshot *s){
+- if(!e || !s || e->testing || !pocket_wifi_profile_valid(p))return false;
+- int index=pocket_wifi_book_find(&e->book,p->ssid);
+- if(index<0 && e->book.count==POCKET_WIFI_CAPACITY){e->join_result=POCKET_WIFI_JOIN_FULL;return false;}
+- e->attempt=*p;e->testing=true;e->join_result=POCKET_WIFI_JOIN_TESTING;e->selected=index;start(e,now,s);return true;
+-}
+-bool pocket_wifi_select(pocket_wifi_engine *e,const char *ssid,int64_t now,const pocket_wifi_snapshot *s){
+- int index=e?pocket_wifi_book_find(&e->book,ssid):-1;
+- return index>=0 && pocket_wifi_join(e,&e->book.profiles[index],now,s);
+-}
+-void pocket_wifi_cancel(pocket_wifi_engine *e,int64_t now,const pocket_wifi_snapshot *s){
+- if(!e || !s || !e->testing)return;
+- e->join_result=POCKET_WIFI_JOIN_CANCELLED;e->connection=POCKET_WIFI_DISCONNECTED;restore(e,now);stop_attempt(e,now,s);
+-}
+-bool pocket_wifi_attempting(const pocket_wifi_engine *e){return e && (e->phase==DISCONNECTING || e->phase==CONNECTING || e->phase==STOPPING);}
+-bool pocket_wifi_forget(pocket_wifi_engine *e,const char *ssid,int64_t now,const pocket_wifi_snapshot *s){
+- if(!e || !s || e->testing)return false;
+- int index=pocket_wifi_book_find(&e->book,ssid);if(index<0)return false;
+- pocket_wifi_book next=e->book;
+- for(unsigned i=(unsigned)index;i+1<next.count;i++)next.profiles[i]=next.profiles[i+1];
+- memset(&next.profiles[--next.count],0,sizeof next.profiles[0]);
+- if(!next.count)next.last=0;
+- else if(next.last==(unsigned)index)next.last=0;
+- else if(next.last>(unsigned)index)next.last--;
+- bool current=s->connected && !strcmp(s->ssid,ssid);
+- if(!persist(e,&next)){memset(&next,0,sizeof next);e->join_result=POCKET_WIFI_JOIN_SAVE_FAILED;return false;}
+- memset(&next,0,sizeof next);e->join_result=POCKET_WIFI_JOIN_FORGOTTEN;
+- if(current || e->phase!=STABLE){e->connection=POCKET_WIFI_DISCONNECTED;restore(e,now);stop_attempt(e,now,s);}
+- return true;
+-}
+-void pocket_wifi_tick(pocket_wifi_engine *e,int64_t now,const pocket_wifi_snapshot *s,bool busy){
+- if(!e || !s || busy)return;
+- if(e->phase==STABLE){
+-  if(s->connected)return;
+-  e->connection=POCKET_WIFI_DISCONNECTED;restore(e,now);return;
+- }
+- if(e->phase==STOPPING){
+-  /* Cancellation retires the driver attempt as well as its credentials. A
+-     late association must be disconnected before another radio owner runs. */
+-  if(s->associated!=e->association_base)stop_attempt(e,now,s);
+-  else if(s->disconnected!=e->disconnect_base && !s->connected){
+-   e->phase=IDLE;
+-   e->association_base=s->associated;e->retry_ms=now+1000;
+-  }else if(now>=e->deadline_ms)stop_attempt(e,now,s);
+-  return;
+- }
+- if(e->phase==DISCONNECTING){
+-  if(s->disconnected!=e->disconnect_base)connect_now(e,now,s);
+-  else if(now>=e->deadline_ms)failed(e,now,s,POCKET_WIFI_CONNECTION_FAILED);
+-  return;
+- }
+- if(e->phase==CONNECTING){
+-  /* A disconnect invalidates this attempt before any later IP callback can
+-     admit a save, including replacement credentials for the same SSID. */
+-  if(s->disconnected!=e->disconnect_base){
+-   failed(e,now,s,s->reason==POCKET_WIFI_REASON_AUTH?POCKET_WIFI_AUTH_FAILED:
+-    s->reason==POCKET_WIFI_REASON_NOT_FOUND?POCKET_WIFI_NOT_FOUND:POCKET_WIFI_CONNECTION_FAILED);return;
+-  }
+-  bool fresh=s->associated!=e->association_base && !strcmp(s->ssid,e->attempt.ssid);
+-  if(fresh)e->connection=POCKET_WIFI_GETTING_IP;
+-  if(fresh && s->got_ip!=e->ip_base && s->got_ip!=s->association_ip && s->connected){
+-   bool same=false;int index=pocket_wifi_book_find(&e->book,e->attempt.ssid);
+-   if(index>=0)same=!memcmp(&e->book.profiles[index],&e->attempt,sizeof e->attempt);
+-   if(e->testing && (!same || e->book.last!=(unsigned)index)){
+-    pocket_wifi_book next=e->book;int added=pocket_wifi_book_put(&next,&e->attempt);
+-    bool saved=added>=0 && persist(e,&next);memset(&next,0,sizeof next);
+-    if(!saved){e->join_result=POCKET_WIFI_JOIN_SAVE_FAILED;restore(e,now);stop_attempt(e,now,s);return;}
+-   }else if(index>=0)e->book.last=(uint8_t)index;
+-   if(e->testing)e->join_result=POCKET_WIFI_JOIN_SAVED;
+-   e->testing=false;e->phase=STABLE;e->connection=POCKET_WIFI_CONNECTED;e->tried=0;e->backoff_ms=10000;
+-   memset(&e->attempt,0,sizeof e->attempt);return;
+-  }
+-  if(now>=e->deadline_ms)failed(e,now,s,POCKET_WIFI_NO_IP);
+-  return;
+- }
+- if(!e->book.count && (s->connected || s->associated!=e->association_base)){
+-  stop_attempt(e,now,s);return;
+- }
+- if(!e->book.count || now<e->retry_ms)return;
+- unsigned all=(1u<<e->book.count)-1;
+- if((e->tried&all)==all){e->tried=0;e->retry_ms=now+e->backoff_ms;e->backoff_ms=e->backoff_ms<30000?e->backoff_ms*2:60000;return;}
+- pocket_wifi_visible seen[POCKET_WIFI_SCAN_MAX]={0};size_t count=e->ops.scan?e->ops.scan(e->ops.context,seen,POCKET_WIFI_SCAN_MAX):0;
+- int index=pocket_wifi_choose(&e->book,seen,count,e->tried);memset(seen,0,sizeof seen);
+- if(index<0){e->retry_ms=now+10000;return;}
+- e->selected=index;e->tried|=1u<<(unsigned)index;e->attempt=e->book.profiles[index];start(e,now,s);
+-}
+diff --git b/firmware/core/pocket_wifi.h a/firmware/core/pocket_wifi.h
+deleted file mode 100644
+index ee0d83c..0000000
+--- b/firmware/core/pocket_wifi.h
++++ /dev/null
+@@ -1,62 +0,0 @@
+-/* MIT. Bounded credentials and connection policy; no SDK calls or logging. */
+-#pragma once
+-#include <stdbool.h>
+-#include <stddef.h>
+-#include <stdint.h>
+-
+-enum { POCKET_WIFI_CAPACITY=5, POCKET_WIFI_SCAN_MAX=20, POCKET_WIFI_CONNECT_MS=20000 };
+-typedef struct { char ssid[33],password[64]; } pocket_wifi_profile;
+-typedef struct {
+- uint32_t version,sequence;
+- uint8_t count,last,reserved[2];
+- pocket_wifi_profile profiles[POCKET_WIFI_CAPACITY];
+-} pocket_wifi_book;
+-typedef struct { char ssid[33];int rssi;bool open; } pocket_wifi_visible;
+-typedef enum { POCKET_WIFI_REASON_OTHER,POCKET_WIFI_REASON_NOT_FOUND,POCKET_WIFI_REASON_AUTH } pocket_wifi_reason;
+-typedef struct {
+- bool connected;uint32_t disconnected,associated,got_ip,association_ip;
+- pocket_wifi_reason reason;char ssid[33];
+-} pocket_wifi_snapshot;
+-typedef enum {
+- POCKET_WIFI_DISCONNECTED,POCKET_WIFI_CONNECTING,POCKET_WIFI_GETTING_IP,POCKET_WIFI_CONNECTED,
+- POCKET_WIFI_NOT_FOUND,POCKET_WIFI_AUTH_FAILED,POCKET_WIFI_NO_IP,POCKET_WIFI_CONNECTION_FAILED
+-} pocket_wifi_connection;
+-typedef enum {
+- POCKET_WIFI_JOIN_IDLE,POCKET_WIFI_JOIN_TESTING,POCKET_WIFI_JOIN_SAVED,POCKET_WIFI_JOIN_FAILED,
+- POCKET_WIFI_JOIN_CANCELLED,POCKET_WIFI_JOIN_FULL,POCKET_WIFI_JOIN_SAVE_FAILED,POCKET_WIFI_JOIN_FORGOTTEN
+-} pocket_wifi_join_result;
+-typedef struct {
+- void *context;
+- /* disconnect: 0 awaits a fresh event, 1 already disconnected, -1 failure. */
+- int (*disconnect)(void *);
+- bool (*connect)(void *,const pocket_wifi_profile *);
+- size_t (*scan)(void *,pocket_wifi_visible *,size_t);
+- bool (*save)(void *,const pocket_wifi_book *);
+-} pocket_wifi_ops;
+-typedef struct {
+- pocket_wifi_book book;
+- pocket_wifi_ops ops;
+- pocket_wifi_profile attempt;
+- pocket_wifi_connection connection;
+- pocket_wifi_join_result join_result;
+- unsigned phase,tried,backoff_ms;
+- uint32_t disconnect_base,association_base,ip_base;
+- int64_t deadline_ms,retry_ms;
+- int selected;
+- bool testing;
+-} pocket_wifi_engine;
+-
+-bool pocket_wifi_profile_valid(const pocket_wifi_profile *profile);
+-void pocket_wifi_book_init(pocket_wifi_book *book);
+-bool pocket_wifi_book_valid(const pocket_wifi_book *book);
+-bool pocket_wifi_book_import(pocket_wifi_book *book,const pocket_wifi_profile *legacy);
+-int pocket_wifi_book_find(const pocket_wifi_book *book,const char *ssid);
+-int pocket_wifi_book_put(pocket_wifi_book *book,const pocket_wifi_profile *profile);
+-int pocket_wifi_choose(const pocket_wifi_book *,const pocket_wifi_visible *,size_t,unsigned tried);
+-void pocket_wifi_init(pocket_wifi_engine *,const pocket_wifi_book *,const pocket_wifi_ops *);
+-void pocket_wifi_tick(pocket_wifi_engine *,int64_t now_ms,const pocket_wifi_snapshot *,bool voice_busy);
+-bool pocket_wifi_join(pocket_wifi_engine *,const pocket_wifi_profile *,int64_t,const pocket_wifi_snapshot *);
+-bool pocket_wifi_select(pocket_wifi_engine *,const char *ssid,int64_t,const pocket_wifi_snapshot *);
+-bool pocket_wifi_forget(pocket_wifi_engine *,const char *ssid,int64_t,const pocket_wifi_snapshot *);
+-void pocket_wifi_cancel(pocket_wifi_engine *,int64_t,const pocket_wifi_snapshot *);
+-bool pocket_wifi_attempting(const pocket_wifi_engine *);
+diff --git b/firmware/main/CMakeLists.txt a/firmware/main/CMakeLists.txt
+index 901b396..4731de3 100644
+--- b/firmware/main/CMakeLists.txt
++++ a/firmware/main/CMakeLists.txt
+@@ -1,4 +1,4 @@
+-idf_component_register(SRCS "main.c" "pocket_ui.c" "pocket_setup.c" "pocket_wifi_store.c" "pocket_pairing.c" "../core/pocket_wifi.c" "../core/pocket_clock.c" "pocket_http.c" "pocket_http_timing.c" "pocket_voice.c" "pocket_speech_client.c" "pocket_usage_client.c" "pocket_preferences.c" "pocket_tasks_client.c" "pocket_models_client.c" "pocket_actions.c" "../core/pocket_model.c" "../core/pocket_usage.c" "../core/pocket_diagnostics.c" "../core/pocket_reminders.c" "../fonts/lv_font_pocket_cjk_16.c"
++idf_component_register(SRCS "main.c" "pocket_ui.c" "pocket_setup.c" "pocket_http.c" "pocket_http_timing.c" "pocket_voice.c" "pocket_speech_client.c" "pocket_usage_client.c" "pocket_preferences.c" "pocket_tasks_client.c" "pocket_models_client.c" "pocket_actions.c" "../core/pocket_model.c" "../core/pocket_usage.c" "../core/pocket_diagnostics.c" "../core/pocket_reminders.c" "../fonts/lv_font_pocket_cjk_16.c"
+     INCLUDE_DIRS "." "../core" "../fonts" REQUIRES bsp esp_timer esp_wifi esp_event esp_netif esp_http_server nvs_flash json esp_http_client mbedtls lwip PRIV_REQUIRES tcp_transport)
+ 
+ # This application only: transparent numeric I/O timing, no SDK edits.
+diff --git b/firmware/main/main.c a/firmware/main/main.c
+index 1f35c05..f2d0a71 100644
+--- b/firmware/main/main.c
++++ a/firmware/main/main.c
+@@ -11,7 +11,6 @@
+ #include "pocket_actions.h"
+ #include "pocket_reminders.h"
+ #include "pocket_power.h"
+-#include "pocket_clock.h"
+ #include "esp_timer.h"
+ #include "bsp_i2c.h"
+ #include "bsp_display.h"
+@@ -141,12 +140,12 @@ static void render(void) {
+   .reader_navigation=reader.status==POCKET_READER_READY,
+   .reader_target=reader.target,.reader_generation=reader.generation,.reader_page=reader.page,.reader_page_count=reader.page_count,.reader_utf8_bytes=reader.utf8_bytes,
+   .reader_has_prev=reader.has_prev,.reader_has_next=reader.has_next,.reader_status=reader_note(reader.status),.reader_open_failed=reader_open_failed,
+-  .uptime_ms=esp_timer_get_time()/1000,.diagnostics=&voice.diagnostics[model.target],.target_save_failed=target_save_failed,.clock_ready=pocket_clock_ready(),
++  .uptime_ms=esp_timer_get_time()/1000,.diagnostics=&voice.diagnostics[model.target],.target_save_failed=target_save_failed,
+   .battery_percent=atomic_load_explicit(&battery_percent,memory_order_relaxed),
+   .setup_active=setup.active,.wifi_connected=setup.wifi_connected,
+   .online=voice.online[model.target],.speech_ready=voice.speech_ready[model.target],
+   .voice_here=voice.target==model.target,.recording=voice.recording,.playing=voice.playing,.busy=voice.busy,
+-  .ssid=setup.ssid,.password=setup.password,.message=voice.message,.text=voice.text,.reply=voice.reply,.setup_message=setup.message};
++  .ssid=setup.ssid,.password=setup.password,.message=voice.message,.text=voice.text,.reply=voice.reply};
+  /* Log the exact selected view only when its connection indicators change. */
+  static unsigned previous=~0u;
+  const unsigned connection=(view.target<<3)|((unsigned)view.wifi_connected<<2)|((unsigned)view.online<<1)|(unsigned)view.speech_ready;
+@@ -269,7 +268,6 @@ static void handle_input(input value){
+  redraw();
+ }
+ void app_main(void) {
+- pocket_clock_reset();
+  pocket_init(&model);pocket_actions_init();events=xQueueCreate(16,sizeof(input));
+  if(!events)return;
+  ESP_ERROR_CHECK(bsp_i2c_init());
+diff --git b/firmware/main/pocket_pairing.c a/firmware/main/pocket_pairing.c
+deleted file mode 100644
+index 5da260c..0000000
+--- b/firmware/main/pocket_pairing.c
++++ /dev/null
+@@ -1,66 +0,0 @@
+-/* MIT. Read-only legacy migration, explicit pairing updates, no Wi-Fi writes. */
+-#include "pocket_pairing.h"
+-#include "nvs.h"
+-#include <stdlib.h>
+-#include <string.h>
+-#include <stdio.h>
+-typedef struct { uint32_t version;char ssid[32],pass[64],windows[193],linux_url[193]; } legacy_config;
+-_Static_assert(sizeof(legacy_config)==488,"legacy v1 layout changed");
+-_Static_assert(sizeof(pocket_pairing_config)==2664,"legacy v2 layout changed");
+-static bool terminated(const char *s,size_t capacity){return memchr(s,0,capacity)!=NULL;}
+-esp_err_t pocket_pairing_load(pocket_pairing_config *out){
+- if(!out)return ESP_ERR_INVALID_ARG;
+- memset(out,0,sizeof *out);nvs_handle_t handle;esp_err_t error=nvs_open("pocket",NVS_READONLY,&handle);
+- if(error!=ESP_OK)return error;
+- size_t size=0;error=nvs_get_blob(handle,"config",NULL,&size);
+- if(error==ESP_OK && size==sizeof(legacy_config)){
+-  legacy_config old={0};error=nvs_get_blob(handle,"config",&old,&size);
+-  if(error==ESP_OK && old.version==1){
+-   memcpy(out->ssid,old.ssid,sizeof old.ssid);memcpy(out->pass,old.pass,sizeof old.pass);
+-   memcpy(out->windows,old.windows,sizeof old.windows);memcpy(out->linux_url,old.linux_url,sizeof old.linux_url);out->version=2;
+-  }else error=ESP_ERR_INVALID_STATE;
+-  memset(&old,0,sizeof old);
+- }else if(error==ESP_OK && size==sizeof *out){
+-  error=nvs_get_blob(handle,"config",out,&size);
+-  if(error==ESP_OK && out->version!=2)error=ESP_ERR_INVALID_STATE;
+- }else if(error==ESP_OK)error=ESP_ERR_INVALID_STATE;
+- nvs_close(handle);
+- if(error==ESP_OK && (!terminated(out->ssid,sizeof out->ssid) || !terminated(out->pass,sizeof out->pass)
+-  || !terminated(out->windows,sizeof out->windows) || !terminated(out->linux_url,sizeof out->linux_url)
+-  || !terminated(out->token,sizeof out->token) || !terminated(out->ca,sizeof out->ca)))error=ESP_ERR_INVALID_STATE;
+- if(error!=ESP_OK)memset(out,0,sizeof *out);
+- return error;
+-}
+-bool pocket_pairing_legacy_wifi(pocket_wifi_profile *out){
+- if(!out)return false;
+- memset(out,0,sizeof *out);pocket_pairing_config *saved=calloc(1,sizeof *saved);if(!saved)return false;
+- bool valid=pocket_pairing_load(saved)==ESP_OK;
+- if(valid){memcpy(out->ssid,saved->ssid,sizeof saved->ssid);memcpy(out->password,saved->pass,sizeof saved->pass);valid=pocket_wifi_profile_valid(out);}
+- memset(saved,0,sizeof *saved);free(saved);if(!valid)memset(out,0,sizeof *out);return valid;
+-}
+-static bool endpoint(const char *url){
+- if(!url || strlen(url)>192)return false;
+- if(!*url)return true;
+- if(strncmp(url,"https://",8) || strlen(url)<9)return false;
+- for(;*url;url++)if((unsigned char)*url<33 || (unsigned char)*url>126 || *url=='@' || *url=='?' || *url=='#')return false;
+- return true;
+-}
+-esp_err_t pocket_pairing_update(const char *win,const char *linux_url,const char *token,const char *ca){
+- if(!endpoint(win) || !endpoint(linux_url) || !token || !ca || strlen(token)>128
+-  || (*token && strlen(token)<32) || strlen(ca)>2048
+-  || (*ca && (strncmp(ca,"-----BEGIN CERTIFICATE-----",27) || !strstr(ca,"-----END CERTIFICATE-----"))))return ESP_ERR_INVALID_ARG;
+- for(const char *p=token;*p;p++)if((unsigned char)*p<33 || (unsigned char)*p>126)return ESP_ERR_INVALID_ARG;
+- if(!*win && !*linux_url && !*token && !*ca)return ESP_OK;
+- pocket_pairing_config *saved=calloc(1,sizeof *saved);if(!saved)return ESP_ERR_NO_MEM;
+- esp_err_t error=pocket_pairing_load(saved);
+- if(error==ESP_ERR_NVS_NOT_FOUND){memset(saved,0,sizeof *saved);saved->version=2;error=ESP_OK;}
+- if(error==ESP_OK){
+-  if(*win)snprintf(saved->windows,sizeof saved->windows,"%s",win);
+-  if(*linux_url)snprintf(saved->linux_url,sizeof saved->linux_url,"%s",linux_url);
+-  if(*token)snprintf(saved->token,sizeof saved->token,"%s",token);
+-  if(*ca)snprintf(saved->ca,sizeof saved->ca,"%s",ca);
+-  nvs_handle_t handle;error=nvs_open("pocket",NVS_READWRITE,&handle);
+-  if(error==ESP_OK){error=nvs_set_blob(handle,"config",saved,sizeof *saved);if(error==ESP_OK)error=nvs_commit(handle);nvs_close(handle);}
+- }
+- memset(saved,0,sizeof *saved);free(saved);return error;
+-}
+diff --git b/firmware/main/pocket_pairing.h a/firmware/main/pocket_pairing.h
+deleted file mode 100644
+index fdc9ad5..0000000
+--- b/firmware/main/pocket_pairing.h
++++ /dev/null
+@@ -1,12 +0,0 @@
+-/* MIT. The original v2 binary record is kept compatible and private. */
+-#pragma once
+-#include <stdint.h>
+-#include "pocket_wifi.h"
+-#include "esp_err.h"
+-typedef struct {
+- uint32_t version;char ssid[32],pass[64],windows[193],linux_url[193],token[129],ca[2049];
+-} pocket_pairing_config;
+-esp_err_t pocket_pairing_load(pocket_pairing_config *);
+-bool pocket_pairing_legacy_wifi(pocket_wifi_profile *);
+-/* Empty fields preserve stored values. No implicit unpair action. */
+-esp_err_t pocket_pairing_update(const char *,const char *,const char *,const char *);
+diff --git b/firmware/main/pocket_setup.c a/firmware/main/pocket_setup.c
+index 329cf0a..b7dadc0 100644
+--- b/firmware/main/pocket_setup.c
++++ a/firmware/main/pocket_setup.c
+@@ -1,392 +1,195 @@
+-/* MIT. Owner-initiated secure setup; one worker owns scans and radio changes. */
++/* MIT. Device-initiated, time-limited WPA2 phone setup. No provider keys. */
+ #include "pocket_setup.h"
+-#include "pocket_pairing.h"
+-#include "pocket_wifi_store.h"
++#include <stdio.h>
++#include <string.h>
++#include <stdlib.h>
++#include "esp_wifi.h"
++#include "lwip/sockets.h"
+ #include "pocket_setup_address.h"
+ #include "pocket_setup_page.h"
+-#include "esp_wifi.h"
+ #include "esp_event.h"
+ #include "esp_netif.h"
+ #include "esp_http_server.h"
+ #include "esp_random.h"
++#include "esp_system.h"
+ #include "esp_timer.h"
+-#include "esp_log.h"
+ #include "nvs_flash.h"
++#include "nvs.h"
+ #include "cJSON.h"
+ #include "freertos/FreeRTOS.h"
+ #include "freertos/task.h"
+-#include "freertos/queue.h"
+-#include <stdio.h>
+-#include <stdlib.h>
+-#include <string.h>
+-#include <stdatomic.h>
+-
+ static portMUX_TYPE lock=portMUX_INITIALIZER_UNLOCKED;
+ static pocket_setup_state state;
+-static pocket_wifi_snapshot radio;
+-static bool station_associated;
+-static pocket_wifi_engine engine;
+-static pocket_wifi_store profile_store;
+ static TaskHandle_t worker;
+ static httpd_handle_t http;
+-static QueueHandle_t commands;
+ static char nonce[33];
+-static int64_t expires_us,last_scan_us;
+-enum { RADIO_IDLE,RADIO_VOICE,RADIO_SETUP,RADIO_AUTO,RADIO_POLL };
+-static atomic_uint radio_owner;
+-static atomic_bool setup_pending,cancel_requested;
+-typedef enum { CMD_SCAN,CMD_JOIN,CMD_SELECT,CMD_FORGET,CMD_CANCEL } command_kind;
+-typedef struct { command_kind kind;pocket_wifi_profile profile; } setup_command;
+-/* RTOS queue slots retain received bytes. Keep credentials out of them. */
+-static setup_command pending_command;
+-static uint32_t pending_operation;
+-typedef struct {
+- char profiles[POCKET_WIFI_CAPACITY][33];
+- pocket_wifi_visible networks[POCKET_WIFI_SCAN_MAX];
+- unsigned count,network_count,scan_state,connection,join_result,operation;
+- bool pending,paired;
+-} setup_public_state;
+-static setup_public_state public_state;
+-
+-bool pocket_setup_voice_acquire(void){
+- if(atomic_load(&setup_pending))return false;
+- unsigned expected=RADIO_IDLE;
+- if(atomic_compare_exchange_strong(&radio_owner,&expected,RADIO_VOICE))return true;
+- if(expected!=RADIO_POLL || atomic_load(&setup_pending))return false;
+- return atomic_compare_exchange_strong(&radio_owner,&expected,RADIO_VOICE);
+-}
+-void pocket_setup_voice_release(void){
+- unsigned expected=RADIO_VOICE;(void)atomic_compare_exchange_strong(&radio_owner,&expected,RADIO_IDLE);
+-}
+-bool pocket_setup_poll_acquire(void){
+- if(atomic_load(&setup_pending))return false;
+- unsigned expected=RADIO_IDLE;
+- return atomic_compare_exchange_strong(&radio_owner,&expected,RADIO_POLL);
+-}
+-bool pocket_setup_poll_continue(void){return atomic_load(&radio_owner)==RADIO_POLL && !atomic_load(&setup_pending);}
+-void pocket_setup_poll_release(void){
+- unsigned expected=RADIO_POLL;
+- if(atomic_compare_exchange_strong(&radio_owner,&expected,RADIO_IDLE) && atomic_load(&setup_pending) && worker)xTaskNotifyGive(worker);
+-}
+-static void message(const char *text){portENTER_CRITICAL(&lock);snprintf(state.message,sizeof state.message,"%s",text);portEXIT_CRITICAL(&lock);}
+-void pocket_setup_read(pocket_setup_state *out){portENTER_CRITICAL(&lock);*out=state;portEXIT_CRITICAL(&lock);}
+-static pocket_wifi_snapshot snapshot(void){portENTER_CRITICAL(&lock);pocket_wifi_snapshot copy=radio;portEXIT_CRITICAL(&lock);return copy;}
+-bool pocket_setup_link(unsigned target,pocket_link_config *out){
++typedef struct { uint32_t version; char ssid[32],pass[64],windows[193],linux_url[193]; } legacy_config;
++typedef struct { uint32_t version; char ssid[32],pass[64],windows[193],linux_url[193],token[129],ca[2049]; } stored_config;
++static bool load_config(stored_config *out) {
++ memset(out,0,sizeof(*out));nvs_handle_t nvs;size_t size=0;
++ if(nvs_open("pocket",NVS_READONLY,&nvs)!=ESP_OK)return false;
++ esp_err_t e=nvs_get_blob(nvs,"config",NULL,&size);
++ if(e==ESP_OK && size==sizeof(legacy_config)) {
++  legacy_config old={0};e=nvs_get_blob(nvs,"config",&old,&size);
++  if(e==ESP_OK && old.version==1){memcpy(out->ssid,old.ssid,sizeof(old.ssid));memcpy(out->pass,old.pass,sizeof(old.pass));memcpy(out->windows,old.windows,sizeof(old.windows));memcpy(out->linux_url,old.linux_url,sizeof(old.linux_url));out->version=2;}else e=ESP_FAIL;
++  memset(&old,0,sizeof(old));
++ }else if(e==ESP_OK && size==sizeof(*out)){e=nvs_get_blob(nvs,"config",out,&size);if(out->version!=2)e=ESP_FAIL;}
++ else e=ESP_FAIL;
++ nvs_close(nvs);
++ return e==ESP_OK && out->ssid[0] && out->ssid[31]==0 && out->pass[63]==0
++  && out->windows[192]==0 && out->linux_url[192]==0 && out->token[128]==0 && out->ca[2048]==0;
++}
++bool pocket_setup_link(unsigned target,pocket_link_config *out) {
+  if(!out || target>1)return false;
+- memset(out,0,sizeof *out);pocket_pairing_config *saved=calloc(1,sizeof *saved);if(!saved)return false;
+- bool valid=pocket_pairing_load(saved)==ESP_OK;
+- if(valid){snprintf(out->origin,sizeof out->origin,"%s",target?saved->linux_url:saved->windows);memcpy(out->token,saved->token,sizeof out->token);memcpy(out->ca,saved->ca,sizeof out->ca);}
+- memset(saved,0,sizeof *saved);free(saved);return valid && out->origin[0] && out->token[0];
+-}
+-static bool pairing_saved(void){
+- pocket_pairing_config *saved=calloc(1,sizeof *saved);if(!saved)return false;
+- bool valid=pocket_pairing_load(saved)==ESP_OK && saved->token[0] && (saved->windows[0] || saved->linux_url[0]);
+- memset(saved,0,sizeof *saved);free(saved);return valid;
+-}
+-static bool on_setup_interface(httpd_req_t *req){
+- struct sockaddr_storage local={0};socklen_t length=sizeof local;
+- return getsockname(httpd_req_to_sockfd(req),(struct sockaddr*)&local,&length)==0 && pocket_setup_address_matches(&local,length);
+-}
+-static bool window_open(void){
+- portENTER_CRITICAL(&lock);bool active=state.active;int64_t expires=expires_us;portEXIT_CRITICAL(&lock);
+- return active && esp_timer_get_time()<expires;
+-}
+-static bool authorize(httpd_req_t *req,bool check_nonce){
+- if(!on_setup_interface(req) || !window_open()){httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Setup expired. Hold OK on Status and reconnect.");return false;}
+- char check[40];
+- if(check_nonce && (httpd_req_get_hdr_value_str(req,"X-Pocket-Setup",check,sizeof check)!=ESP_OK || strcmp(check,nonce))){httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Setup authorization required");return false;}
+- return true;
+-}
+-static esp_err_t send_json(httpd_req_t *req,cJSON *root){
+- char *body=root?cJSON_PrintUnformatted(root):NULL;cJSON_Delete(root);
+- if(!body)return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Not enough memory. Retry.");
+- httpd_resp_set_type(req,"application/json");httpd_resp_set_hdr(req,"Cache-Control","no-store");
+- esp_err_t error=httpd_resp_sendstr(req,body);cJSON_free(body);return error;
+-}
+-static esp_err_t page(httpd_req_t *req){
+- if(!authorize(req,false))return ESP_OK;
+- httpd_resp_set_type(req,"text/html; charset=utf-8");httpd_resp_set_hdr(req,"Cache-Control","no-store");httpd_resp_set_hdr(req,"X-Content-Type-Options","nosniff");
+- if(httpd_resp_send_chunk(req,setup_html_before,sizeof setup_html_before-1)!=ESP_OK || httpd_resp_send_chunk(req,nonce,strlen(nonce))!=ESP_OK
+-  || httpd_resp_send_chunk(req,setup_html_after,sizeof setup_html_after-1)!=ESP_OK)return ESP_FAIL;
++ memset(out,0,sizeof(*out));stored_config *saved=calloc(1,sizeof(*saved));
++ if(!saved)return false;
++ bool valid=load_config(saved);
++ if(valid){snprintf(out->origin,sizeof(out->origin),"%s",target?saved->linux_url:saved->windows);
++  memcpy(out->token,saved->token,sizeof(out->token));memcpy(out->ca,saved->ca,sizeof(out->ca));}
++ memset(saved,0,sizeof(*saved));free(saved);
++ return valid && out->origin[0] && out->token[0];
++}
++static volatile bool reboot_pending;
++static int64_t reboot_at;
++static void message(const char *text) {
++ portENTER_CRITICAL(&lock);snprintf(state.message,sizeof(state.message),"%s",text);portEXIT_CRITICAL(&lock);
++}
++void pocket_setup_read(pocket_setup_state *out) {portENTER_CRITICAL(&lock);*out=state;portEXIT_CRITICAL(&lock);}
++static bool read_wifi(wifi_config_t *config) {
++ stored_config *saved=calloc(1,sizeof(*saved));memset(config,0,sizeof(*config));if(!saved)return false;
++ bool valid=load_config(saved);
++ if(valid){memcpy(config->sta.ssid,saved->ssid,sizeof(saved->ssid));memcpy(config->sta.password,saved->pass,sizeof(saved->pass));}
++ memset(saved,0,sizeof(*saved));free(saved);return valid;
++}
++static bool on_setup_interface(httpd_req_t *req) {
++ struct sockaddr_storage local={0}; socklen_t length=sizeof(local);
++ return getsockname(httpd_req_to_sockfd(req),(struct sockaddr*)&local,&length)==0
++     && pocket_setup_address_matches(&local,length);
++}
++static esp_err_t page(httpd_req_t *req) {
++ if(!on_setup_interface(req))return httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Connect to device setup Wi-Fi");
++ httpd_resp_set_type(req,"text/html; charset=utf-8");httpd_resp_set_hdr(req,"Cache-Control","no-store");
++ httpd_resp_set_hdr(req,"X-Content-Type-Options","nosniff");
++ if(httpd_resp_send_chunk(req,setup_html_before,sizeof(setup_html_before)-1)!=ESP_OK ||
++    httpd_resp_send_chunk(req,nonce,strlen(nonce))!=ESP_OK ||
++    httpd_resp_send_chunk(req,setup_html_after,sizeof(setup_html_after)-1)!=ESP_OK)return ESP_FAIL;
+  return httpd_resp_send_chunk(req,NULL,0);
+ }
+-static esp_err_t wifi_status(httpd_req_t *req){
+- if(!authorize(req,true))return ESP_OK;
+- portENTER_CRITICAL(&lock);setup_public_state copy=public_state;pocket_wifi_snapshot current=radio;int64_t expires=expires_us;portEXIT_CRITICAL(&lock);
+- cJSON *root=cJSON_CreateObject(),*profiles=root?cJSON_AddArrayToObject(root,"profiles"):NULL,*networks=root?cJSON_AddArrayToObject(root,"networks"):NULL;
+- if(!profiles || !networks){cJSON_Delete(root);return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Not enough memory. Retry.");}
+- bool ok=cJSON_AddBoolToObject(root,"connected",current.connected) && cJSON_AddStringToObject(root,"ssid",current.connected?current.ssid:"")
+-  && cJSON_AddNumberToObject(root,"connection",copy.connection) && cJSON_AddNumberToObject(root,"join_result",copy.join_result)
+-  && cJSON_AddNumberToObject(root,"operation",copy.operation) && cJSON_AddNumberToObject(root,"capacity",POCKET_WIFI_CAPACITY)
+-  && cJSON_AddNumberToObject(root,"scan_state",copy.scan_state) && cJSON_AddBoolToObject(root,"pairing_saved",copy.paired)
+-  && cJSON_AddBoolToObject(root,"store_writable",profile_store.writable)
+-  && cJSON_AddNumberToObject(root,"expires_seconds",expires>esp_timer_get_time()?(double)((expires-esp_timer_get_time())/1000000):0);
+- for(unsigned i=0;ok && i<copy.count;i++){
+-  cJSON *item=cJSON_CreateObject();ok=item && cJSON_AddStringToObject(item,"ssid",copy.profiles[i])
+-   && cJSON_AddBoolToObject(item,"connected",current.connected && !strcmp(copy.profiles[i],current.ssid));
+-  if(ok)ok=cJSON_AddItemToArray(profiles,item);else cJSON_Delete(item);
+- }
+- for(unsigned i=0;ok && i<copy.network_count;i++){
+-  cJSON *item=cJSON_CreateObject();ok=item && cJSON_AddStringToObject(item,"ssid",copy.networks[i].ssid)
+-   && cJSON_AddNumberToObject(item,"rssi",copy.networks[i].rssi) && cJSON_AddBoolToObject(item,"open",copy.networks[i].open);
+-  if(ok)ok=cJSON_AddItemToArray(networks,item);else cJSON_Delete(item);
+- }
+- if(!ok){cJSON_Delete(root);root=NULL;}
+- return send_json(req,root);
+-}
+-static void delete_secret_json(cJSON *root){
+- if(root)for(cJSON *item=root->child;item;item=item->next)if(cJSON_IsString(item) && item->valuestring)memset(item->valuestring,0,strlen(item->valuestring));
+- cJSON_Delete(root);
+-}
+-static cJSON *read_json(httpd_req_t *req,size_t maximum){
+- if(!authorize(req,true))return NULL;
+- char content[40];
+- if(httpd_req_get_hdr_value_str(req,"Content-Type",content,sizeof content)!=ESP_OK || strcmp(content,"application/json")){httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Use JSON settings");return NULL;}
+- if(req->content_len<=0 || (size_t)req->content_len>maximum){httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Invalid settings size");return NULL;}
+- char *body=calloc((size_t)req->content_len+1,1);if(!body){httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Not enough memory. Retry.");return NULL;}
+- int received=0;
+- while(received<req->content_len){int got=httpd_req_recv(req,body+received,req->content_len-received);if(got<=0)break;received+=got;}
+- bool zero=memchr(body,0,(size_t)received)!=NULL;
+- for(int i=0;i<received;i++)if(body[i]=='\\' && i+1<received){i++;if(body[i]=='u' && i+4<received && !memcmp(body+i+1,"0000",4))zero=true;}
+- cJSON *root=received==req->content_len && !zero?cJSON_ParseWithLengthOpts(body,(size_t)received+1,NULL,true):NULL;
+- memset(body,0,(size_t)req->content_len+1);free(body);
+- if(!cJSON_IsObject(root)){delete_secret_json(root);httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Invalid JSON settings");return NULL;}
+- return root;
+-}
+-static const char *field(cJSON *root,const char *key){cJSON *value=cJSON_GetObjectItemCaseSensitive(root,key);return cJSON_IsString(value)?value->valuestring:NULL;}
+-static bool fields(cJSON *root,const char *const *names,unsigned count){
+- if((unsigned)cJSON_GetArraySize(root)!=count)return false;
+- for(unsigned i=0;i<count;i++)if(!field(root,names[i]))return false;
+- return true;
+-}
+-static esp_err_t enqueue(httpd_req_t *req,setup_command *command){
+- if(!window_open()){memset(command,0,sizeof *command);return httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Setup expired. Reopen setup.");}
+- if(command->kind==CMD_CANCEL){
+-  atomic_store(&cancel_requested,true);memset(command,0,sizeof *command);
+-  portENTER_CRITICAL(&lock);unsigned operation=++public_state.operation;portEXIT_CRITICAL(&lock);
+-  cJSON *root=cJSON_CreateObject();if(root){cJSON_AddBoolToObject(root,"accepted",true);cJSON_AddNumberToObject(root,"operation",operation);}
+-  httpd_resp_set_status(req,"202 Accepted");return send_json(req,root);
+- }
+- portENTER_CRITICAL(&lock);bool busy=public_state.pending || public_state.join_result==POCKET_WIFI_JOIN_TESTING;
+- unsigned previous_join=public_state.join_result;
+- busy=busy || atomic_load(&cancel_requested);
+- if(!busy){public_state.pending=true;public_state.operation++;if(!public_state.operation)public_state.operation=1;pending_command=*command;pending_operation=public_state.operation;if(command->kind==CMD_SCAN)public_state.scan_state=1;else public_state.join_result=POCKET_WIFI_JOIN_TESTING;}
+- unsigned operation=public_state.operation;portEXIT_CRITICAL(&lock);
+- if(busy){memset(command,0,sizeof *command);return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"A Wi-Fi operation is already running. Wait or cancel.");}
+- BaseType_t sent=xQueueSend(commands,&operation,0);memset(command,0,sizeof *command);
+- if(sent!=pdTRUE){portENTER_CRITICAL(&lock);if(pending_operation==operation){memset(&pending_command,0,sizeof pending_command);pending_operation=0;public_state.pending=false;public_state.join_result=previous_join;}portEXIT_CRITICAL(&lock);return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Wi-Fi queue busy. Retry.");}
+- cJSON *root=cJSON_CreateObject();if(root){cJSON_AddBoolToObject(root,"accepted",true);cJSON_AddNumberToObject(root,"operation",operation);}
+- httpd_resp_set_status(req,"202 Accepted");return send_json(req,root);
+-}
+-static esp_err_t networks(httpd_req_t *req){
+- if(!authorize(req,true))return ESP_OK;
++static esp_err_t networks(httpd_req_t *req) {
++ if(!on_setup_interface(req))return httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Connect to Pocket setup Wi-Fi");
++ char check[40];
++ if(httpd_req_get_hdr_value_str(req,"X-Pocket-Setup",check,sizeof(check))!=ESP_OK || strcmp(check,nonce))return httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Setup expired. Reopen setup on Pocket.");
++ static int64_t last_scan;
+  int64_t now=esp_timer_get_time();
+- if(last_scan_us && now-last_scan_us<5000000)return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Wait five seconds before scanning again.");
+- last_scan_us=now;setup_command command={.kind=CMD_SCAN};return enqueue(req,&command);
+-}
+-static esp_err_t wifi_join(httpd_req_t *req){
+- cJSON *root=read_json(req,1024);if(!root)return ESP_OK;
+- static const char *const names[]={"ssid","password"};setup_command command={.kind=CMD_JOIN};
+- const char *ssid=field(root,"ssid"),*password=field(root,"password");
+- bool valid=fields(root,names,2) && ssid && password && strlen(ssid)<=32 && strlen(password)<=63;
+- if(valid){snprintf(command.profile.ssid,sizeof command.profile.ssid,"%s",ssid);snprintf(command.profile.password,sizeof command.profile.password,"%s",password);valid=pocket_wifi_profile_valid(&command.profile);}
+- delete_secret_json(root);
+- if(!valid || !profile_store.writable){memset(&command,0,sizeof command);return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,valid?"Saved networks need recovery. Existing settings retained.":"Check network name and password.");}
+- return enqueue(req,&command);
+-}
+-static esp_err_t wifi_control(httpd_req_t *req){
+- cJSON *root=read_json(req,192);if(!root)return ESP_OK;
+- bool cancel=!strcmp(req->uri,"/wifi/cancel");setup_command command={.kind=cancel?CMD_CANCEL:!strcmp(req->uri,"/wifi/forget")?CMD_FORGET:CMD_SELECT};
+- static const char *const names[]={"ssid"};const char *ssid=field(root,"ssid");
+- bool valid=cancel?cJSON_GetArraySize(root)==0:fields(root,names,1) && ssid && strlen(ssid)>0 && strlen(ssid)<=32;
+- if(valid && !cancel)snprintf(command.profile.ssid,sizeof command.profile.ssid,"%s",ssid);
+- delete_secret_json(root);
+- if(!valid || (command.kind==CMD_FORGET && !profile_store.writable))return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Cannot apply this Wi-Fi action. Settings retained.");
+- return enqueue(req,&command);
+-}
+-static esp_err_t pairing(httpd_req_t *req){
+- cJSON *root=read_json(req,4096);if(!root)return ESP_OK;
+- static const char *const names[]={"windows","linux","token","ca"};esp_err_t error=ESP_ERR_INVALID_ARG;
+- if(fields(root,names,4) && window_open())error=pocket_pairing_update(field(root,"windows"),field(root,"linux"),field(root,"token"),field(root,"ca"));
+- delete_secret_json(root);
+- if(error!=ESP_OK)return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Could not update pairing. Check HTTPS settings; existing Wi-Fi retained.");
+- bool paired=pairing_saved();portENTER_CRITICAL(&lock);public_state.paired=paired;portEXIT_CRITICAL(&lock);
+- httpd_resp_set_hdr(req,"Cache-Control","no-store");return httpd_resp_sendstr(req,"Pairing saved. Blank fields preserved. Wi-Fi unchanged.");
+-}
+-static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data){
+- (void)arg;portENTER_CRITICAL(&lock);
+- if(base==WIFI_EVENT && id==WIFI_EVENT_STA_CONNECTED){
+-  const wifi_event_sta_connected_t *connected=data;
+-  const bool secure=connected && (connected->authmode==WIFI_AUTH_WPA2_PSK || connected->authmode==WIFI_AUTH_WPA_WPA2_PSK
+-   || connected->authmode==WIFI_AUTH_WPA3_PSK || connected->authmode==WIFI_AUTH_WPA2_WPA3_PSK
+-   || connected->authmode==WIFI_AUTH_WPA3_EXT_PSK || connected->authmode==WIFI_AUTH_WPA3_EXT_PSK_MIXED_MODE);
+-  station_associated=secure && connected->ssid_len>0 && connected->ssid_len<=32;
+-  radio.connected=false;state.wifi_connected=false;
+-  if(station_associated){memset(radio.ssid,0,sizeof radio.ssid);memcpy(radio.ssid,connected->ssid,connected->ssid_len);radio.association_ip=radio.got_ip;radio.associated++;}
+-  else {radio.disconnected++;radio.reason=POCKET_WIFI_REASON_AUTH;}
+- }
+- if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP && station_associated){radio.connected=true;radio.got_ip++;state.wifi_connected=true;}
+- if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED){
+-  const wifi_event_sta_disconnected_t *disconnected=data;unsigned reason=disconnected?disconnected->reason:0;
+-  station_associated=false;radio.connected=false;radio.disconnected++;state.wifi_connected=false;
+-  radio.reason=reason==WIFI_REASON_AUTH_FAIL || reason==WIFI_REASON_HANDSHAKE_TIMEOUT || reason==WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT?POCKET_WIFI_REASON_AUTH:
+-   reason==WIFI_REASON_NO_AP_FOUND || reason==WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY || reason==WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD || reason==WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD?POCKET_WIFI_REASON_NOT_FOUND:POCKET_WIFI_REASON_OTHER;
+- }
+- portEXIT_CRITICAL(&lock);
+-}
+-static bool scan_ok;
+-static size_t radio_scan(void *unused,pocket_wifi_visible *out,size_t capacity){
+- (void)unused;scan_ok=false;wifi_scan_config_t config={0};config.scan_type=WIFI_SCAN_TYPE_ACTIVE;config.scan_time.active.min=40;config.scan_time.active.max=100;
+- if(esp_wifi_scan_start(&config,true)!=ESP_OK)return 0;
+- uint16_t count=POCKET_WIFI_SCAN_MAX;wifi_ap_record_t *records=calloc(count,sizeof *records);
+- if(!records){esp_wifi_clear_ap_list();return 0;}
+- esp_err_t error=esp_wifi_scan_get_ap_records(&count,records);
+- if(error!=ESP_OK){esp_wifi_clear_ap_list();free(records);return 0;}
+- size_t used=0;
+- for(unsigned i=0;i<count && used<capacity;i++){
+-  records[i].ssid[32]=0;if(!records[i].ssid[0])continue;
+-  bool duplicate=false;for(size_t j=0;j<used;j++)if(!strcmp(out[j].ssid,(char*)records[i].ssid))duplicate=true;
++ if(last_scan && now-last_scan<5000000)return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Please wait five seconds before scanning again.");
++ last_scan=now;
++ wifi_scan_config_t config={0};config.scan_type=WIFI_SCAN_TYPE_ACTIVE;config.scan_time.active.min=40;config.scan_time.active.max=100;
++ esp_err_t result=esp_wifi_scan_start(&config,true);
++ if(result!=ESP_OK)return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Wi-Fi busy. Try again or enter the network name.");
++ uint16_t count=20;wifi_ap_record_t *records=calloc(count,sizeof(*records));
++ if(!records){esp_wifi_clear_ap_list();return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Not enough memory. Try manual entry.");}
++ result=esp_wifi_scan_get_ap_records(&count,records);
++ if(result!=ESP_OK){esp_wifi_clear_ap_list();free(records);return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Scan failed. Try again.");}
++ cJSON *root=cJSON_CreateObject();cJSON *list=root?cJSON_AddArrayToObject(root,"networks"):NULL;
++ bool ok=list!=NULL;
++ for(unsigned i=0;ok && i<count;i++){
++  records[i].ssid[32]=0;
++  if(!records[i].ssid[0])continue;
++  bool duplicate=false;for(unsigned j=0;j<i;j++)if(!strcmp((char*)records[j].ssid,(char*)records[i].ssid))duplicate=true;
+   if(duplicate)continue;
+-  snprintf(out[used].ssid,sizeof out[used].ssid,"%s",(char*)records[i].ssid);out[used].rssi=records[i].rssi;out[used].open=records[i].authmode==WIFI_AUTH_OPEN;used++;
++  cJSON *item=cJSON_CreateObject();if(!item){ok=false;break;}
++  if(!cJSON_AddStringToObject(item,"ssid",(char*)records[i].ssid) || !cJSON_AddNumberToObject(item,"rssi",records[i].rssi) || !cJSON_AddBoolToObject(item,"open",records[i].authmode==WIFI_AUTH_OPEN)){cJSON_Delete(item);ok=false;break;}
++  if(!cJSON_AddItemToArray(list,item)){cJSON_Delete(item);ok=false;break;}
+  }
+- free(records);scan_ok=true;return used;
+-}
+-static int radio_disconnect(void *unused){
+- (void)unused;wifi_ap_record_t previous={0};esp_err_t query=esp_wifi_sta_get_ap_info(&previous);memset(&previous,0,sizeof previous);
+- if(query!=ESP_OK && query!=ESP_ERR_WIFI_NOT_CONNECT)return -1;
+- /* IDF succeeds without a disconnect event when no association exists.
+-    An existing association still requires its fresh disconnect callback. */
+- const bool associated=query==ESP_OK;esp_err_t error=esp_wifi_disconnect();
+- ESP_LOGI("pocket_wifi_driver","associated=%u query=%d disconnect=%d",(unsigned)associated,query,error);
+- if(error==ESP_OK || error==ESP_ERR_WIFI_NOT_CONNECT){portENTER_CRITICAL(&lock);station_associated=false;radio.connected=false;state.wifi_connected=false;portEXIT_CRITICAL(&lock);}
+- return error==ESP_OK?(associated?0:1):error==ESP_ERR_WIFI_NOT_CONNECT?1:-1;
+-}
+-static bool radio_connect(void *unused,const pocket_wifi_profile *profile){
+- (void)unused;wifi_config_t config={0};memcpy(config.sta.ssid,profile->ssid,strlen(profile->ssid));memcpy(config.sta.password,profile->password,strlen(profile->password));
+- config.sta.threshold.authmode=WIFI_AUTH_WPA2_PSK;
+- esp_err_t error=esp_wifi_set_config(WIFI_IF_STA,&config);memset(&config,0,sizeof config);
+- return error==ESP_OK && esp_wifi_connect()==ESP_OK;
+-}
+-static bool save_profiles(void *unused,const pocket_wifi_book *book){
+- (void)unused;if(!window_open() || atomic_load(&cancel_requested) || atomic_load(&radio_owner)!=RADIO_SETUP)return false;
+- return pocket_wifi_store_save(&profile_store,book)==ESP_OK;
++ free(records);char *json=ok?cJSON_PrintUnformatted(root):NULL;cJSON_Delete(root);
++ if(!json)return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Could not prepare network list.");
++ httpd_resp_set_type(req,"application/json");httpd_resp_set_hdr(req,"Cache-Control","no-store");
++ result=httpd_resp_sendstr(req,json);cJSON_free(json);return result;
+ }
+-static void publish(void){
+- pocket_wifi_snapshot current=snapshot();
+- portENTER_CRITICAL(&lock);public_state.count=engine.book.count;public_state.connection=engine.connection;if(!public_state.pending)public_state.join_result=engine.join_result;state.configured=engine.book.count>0;
+- memset(public_state.profiles,0,sizeof public_state.profiles);for(unsigned i=0;i<engine.book.count;i++)memcpy(public_state.profiles[i],engine.book.profiles[i].ssid,33);
+- bool active=state.active;portEXIT_CRITICAL(&lock);
+- static unsigned previous=~0u;
+- unsigned key=(unsigned)current.connected|((unsigned)engine.connection<<1)|((unsigned)engine.join_result<<5)|((unsigned)engine.book.count<<9)|((unsigned)active<<12);
+- if(key!=previous){previous=key;ESP_LOGI("pocket_wifi","connection=%u join=%u connected=%u profiles=%u setup=%u",(unsigned)engine.connection,(unsigned)engine.join_result,(unsigned)current.connected,(unsigned)engine.book.count,(unsigned)active);}
+- if(active){
+-  const char *note=engine.testing?"Testing Wi-Fi; old networks retained":engine.join_result==POCKET_WIFI_JOIN_SAVED?"Wi-Fi saved. Check Hermes on Status":
+-   engine.join_result==POCKET_WIFI_JOIN_FULL?"Five saved. Forget one on your phone":engine.join_result==POCKET_WIFI_JOIN_SAVE_FAILED?"Save uncertain. Check saved networks":
+-   engine.join_result==POCKET_WIFI_JOIN_FAILED?"Join failed; restoring saved Wi-Fi":engine.join_result==POCKET_WIFI_JOIN_CANCELLED?"Cancelled; restoring saved Wi-Fi":"Finish setup on your phone";
+-  message(note);
+- }
++static const char *field(cJSON *root,const char *key) {
++ cJSON *value=cJSON_GetObjectItemCaseSensitive(root,key);
++ return cJSON_IsString(value)?value->valuestring:NULL;
+ }
+-static void start_setup(int64_t now){
+- if(atomic_load(&radio_owner)!=RADIO_SETUP)return;
+- atomic_store(&setup_pending,false);
+- uint8_t random[16];esp_fill_random(random,sizeof random);wifi_config_t config={0};config.ap.max_connection=1;config.ap.authmode=WIFI_AUTH_WPA2_PSK;config.ap.pmf_cfg.required=true;
+- snprintf((char*)config.ap.ssid,sizeof config.ap.ssid,"Pocket-%02X%02X",random[0],random[1]);static const char alphabet[]="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+- for(unsigned i=0;i<8;i++)config.ap.password[i]=alphabet[random[i]&31];
+- esp_fill_random(random,sizeof random);for(unsigned i=0;i<16;i++)snprintf(nonce+i*2,3,"%02x",random[i]);
+- bool started=esp_wifi_set_mode(WIFI_MODE_APSTA)==ESP_OK && esp_wifi_set_config(WIFI_IF_AP,&config)==ESP_OK;
+- if(started){
+-  httpd_config_t settings=HTTPD_DEFAULT_CONFIG();settings.max_open_sockets=2;settings.recv_wait_timeout=5;settings.send_wait_timeout=5;settings.stack_size=12288;settings.max_uri_handlers=9;
+-  started=httpd_start(&http,&settings)==ESP_OK;
+-  if(started){
+-   const httpd_uri_t routes[]={
+-    {.uri="/",.method=HTTP_GET,.handler=page},{.uri="/networks",.method=HTTP_GET,.handler=networks},
+-    {.uri="/wifi/status",.method=HTTP_GET,.handler=wifi_status},{.uri="/wifi/join",.method=HTTP_POST,.handler=wifi_join},
+-    {.uri="/wifi/connect",.method=HTTP_POST,.handler=wifi_control},{.uri="/wifi/forget",.method=HTTP_POST,.handler=wifi_control},
+-    {.uri="/wifi/cancel",.method=HTTP_POST,.handler=wifi_control},{.uri="/pairing",.method=HTTP_POST,.handler=pairing}};
+-   for(unsigned i=0;i<sizeof routes/sizeof routes[0];i++)if(httpd_register_uri_handler(http,&routes[i])!=ESP_OK)started=false;
+-  }
+- }
+- if(started){
+-  portENTER_CRITICAL(&lock);expires_us=now+300000000;state.active=true;snprintf(state.ssid,sizeof state.ssid,"%s",config.ap.ssid);snprintf(state.password,sizeof state.password,"%.24s",config.ap.password);portEXIT_CRITICAL(&lock);
+-  last_scan_us=0;message("Finish setup on your phone");
+- }else {
+-  if(http){httpd_stop(http);http=NULL;}
+-  esp_wifi_set_mode(WIFI_MODE_STA);atomic_store(&radio_owner,RADIO_IDLE);memset(nonce,0,sizeof nonce);message("Setup unavailable. Hold OK to retry");
+- }
+- memset(&config,0,sizeof config);memset(random,0,sizeof random);
+-}
+-static bool discard_pending(void){
+- uint32_t ticket;while(xQueueReceive(commands,&ticket,0)==pdTRUE){}
+- portENTER_CRITICAL(&lock);bool join=pending_operation && pending_command.kind!=CMD_SCAN;
+- memset(&pending_command,0,sizeof pending_command);pending_operation=0;public_state.pending=false;portEXIT_CRITICAL(&lock);return join;
++static bool endpoint(const char *url) {
++ if(!url || strlen(url)>192)return false;
++ if(!*url)return true;
++ if(strncmp(url,"https://",8)!=0 || strlen(url)<9)return false;
++ for(const char *p=url;*p;p++)if((unsigned char)*p<33 || (unsigned char)*p>126 || *p=='@' || *p=='?' || *p=='#')return false;
++ return true;
+ }
+-static void work_step(bool notified,int64_t now){
+- if(notified && !http)start_setup(now);
+- if(http && now>=expires_us){
+-  pocket_wifi_snapshot current=snapshot();bool queued=discard_pending();pocket_wifi_cancel(&engine,now/1000,&current);
+-  if(queued)engine.join_result=POCKET_WIFI_JOIN_CANCELLED;
+-  portENTER_CRITICAL(&lock);state.active=false;public_state.pending=false;memset(state.password,0,sizeof state.password);portEXIT_CRITICAL(&lock);
+-  httpd_stop(http);http=NULL;esp_wifi_set_mode(WIFI_MODE_STA);memset(nonce,0,sizeof nonce);atomic_store(&radio_owner,RADIO_IDLE);message("Setup expired. Hold OK to reopen");
++static esp_err_t save(httpd_req_t *req) {
++ if(!on_setup_interface(req))return httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Connect to device setup Wi-Fi");
++ char check[40],content[40];
++ if(httpd_req_get_hdr_value_str(req,"X-Pocket-Setup",check,sizeof(check))!=ESP_OK || strcmp(check,nonce) || httpd_req_get_hdr_value_str(req,"Content-Type",content,sizeof(content))!=ESP_OK || strcmp(content,"application/json"))return httpd_resp_send_err(req,HTTPD_403_FORBIDDEN,"Setup authorization required");
++ if(req->content_len<=0 || req->content_len>4096)return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Invalid settings size");
++ char *body=calloc(4097,1);if(!body)return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Not enough memory. Please retry.");int got=0;
++ while(got<req->content_len){int n=httpd_req_recv(req,body+got,req->content_len-got);if(n<=0){memset(body,0,4097);free(body);return ESP_FAIL;}got+=n;}
++ body[got]=0;cJSON *root=cJSON_Parse(body);
++ const char *ssid=field(root,"ssid"),*pass=field(root,"password"),*win=field(root,"windows"),*linux_url=field(root,"linux"),*token=field(root,"token"),*ca=field(root,"ca");
++ if(!cJSON_IsObject(root) || cJSON_GetArraySize(root)!=6 || !ssid || strlen(ssid)<1 || strlen(ssid)>31 || !pass || strlen(pass)<8 || strlen(pass)>63 || !endpoint(win) || !endpoint(linux_url) || !token || strlen(token)>128 || (*token && strlen(token)<32) || !ca || strlen(ca)>2048 || (*ca && (strncmp(ca,"-----BEGIN CERTIFICATE-----",27) || !strstr(ca,"-----END CERTIFICATE-----")))) {
++  cJSON_Delete(root);memset(body,0,4097);free(body);return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Check Wi-Fi name/password and HTTPS bridge addresses");
+  }
+- if(atomic_exchange(&cancel_requested,false)){
+-  bool queued=discard_pending();pocket_wifi_snapshot current=snapshot();pocket_wifi_cancel(&engine,now/1000,&current);
+-  if(queued)engine.join_result=POCKET_WIFI_JOIN_CANCELLED;
+- }
+- setup_command command={0};uint32_t ticket=0;bool received=false;
+- if(xQueueReceive(commands,&ticket,0)==pdTRUE){
+-  portENTER_CRITICAL(&lock);received=pending_operation==ticket && pending_operation!=0;
+-  if(received){command=pending_command;memset(&pending_command,0,sizeof pending_command);pending_operation=0;}
+-  portEXIT_CRITICAL(&lock);
+- }
+- if(received){
+-  pocket_wifi_snapshot current=snapshot();
+-  if(window_open() && atomic_load(&radio_owner)==RADIO_SETUP){
+-   if(command.kind==CMD_JOIN)pocket_wifi_join(&engine,&command.profile,now/1000,&current);
+-   else if(command.kind==CMD_SELECT){if(!pocket_wifi_select(&engine,command.profile.ssid,now/1000,&current))engine.join_result=POCKET_WIFI_JOIN_FAILED;}
+-   else if(command.kind==CMD_FORGET){if(!pocket_wifi_forget(&engine,command.profile.ssid,now/1000,&current) && engine.join_result!=POCKET_WIFI_JOIN_SAVE_FAILED)engine.join_result=POCKET_WIFI_JOIN_FAILED;}
+-   else if(command.kind==CMD_CANCEL)pocket_wifi_cancel(&engine,now/1000,&current);
+-   else {
+-    pocket_wifi_visible records[POCKET_WIFI_SCAN_MAX]={0};size_t count=0;scan_ok=false;
+-    if(!engine.testing && engine.connection!=POCKET_WIFI_CONNECTING && engine.connection!=POCKET_WIFI_GETTING_IP)count=radio_scan(NULL,records,POCKET_WIFI_SCAN_MAX);
+-    portENTER_CRITICAL(&lock);memcpy(public_state.networks,records,sizeof records);public_state.network_count=(unsigned)count;public_state.scan_state=scan_ok?2:3;portEXIT_CRITICAL(&lock);
+-   }
++ stored_config saved={.version=2};
++ for(const char *t=token;*t;t++)if((unsigned char)*t<33 || (unsigned char)*t>126){cJSON_Delete(root);memset(body,0,4097);free(body);return httpd_resp_send_err(req,HTTPD_400_BAD_REQUEST,"Invalid device token");}
++ snprintf(saved.ssid,sizeof(saved.ssid),"%s",ssid);snprintf(saved.pass,sizeof(saved.pass),"%s",pass);
++ snprintf(saved.windows,sizeof(saved.windows),"%s",win);snprintf(saved.linux_url,sizeof(saved.linux_url),"%s",linux_url);
++ snprintf(saved.token,sizeof(saved.token),"%s",token);snprintf(saved.ca,sizeof(saved.ca),"%s",ca);
++ nvs_handle_t nvs;esp_err_t result=nvs_open("pocket",NVS_READWRITE,&nvs);
++ if(result==ESP_OK){result=nvs_set_blob(nvs,"config",&saved,sizeof(saved));if(result==ESP_OK)result=nvs_commit(nvs);nvs_close(nvs);}
++ memset(&saved,0,sizeof(saved));
++ cJSON_Delete(root);memset(body,0,4097);free(body);
++ if(result!=ESP_OK)return httpd_resp_send_err(req,HTTPD_500_INTERNAL_SERVER_ERROR,"Could not save settings");
++ message("Saved. Restarting...");reboot_at=esp_timer_get_time()+2000000;reboot_pending=true;
++ httpd_resp_set_hdr(req,"Cache-Control","no-store");return httpd_resp_sendstr(req,"Saved. Device restarting. Rejoin your normal Wi-Fi.");
++}
++static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data) {
++ (void)arg;(void)data;
++ if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP){portENTER_CRITICAL(&lock);state.wifi_connected=true;portEXIT_CRITICAL(&lock);}
++ if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED){portENTER_CRITICAL(&lock);state.wifi_connected=false;portEXIT_CRITICAL(&lock);}
++}
++static void work(void *arg) {
++ (void)arg;int64_t expires=0,last_attempt=0;
++ for(;;){
++  if(ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(250)) && !http){
++   uint8_t random[16];esp_fill_random(random,sizeof(random));
++   wifi_config_t config={0};config.ap.max_connection=1;config.ap.authmode=WIFI_AUTH_WPA2_PSK;config.ap.pmf_cfg.required=true;
++   snprintf((char*)config.ap.ssid,sizeof(config.ap.ssid),"Pocket-%02X%02X",random[0],random[1]);
++   static const char alphabet[]="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
++   for(int i=0;i<8;i++)config.ap.password[i]=alphabet[random[i]&31];
++   config.ap.password[8]=0;
++   esp_fill_random(random,sizeof(random));
++   for(int i=0;i<16;i++)snprintf(nonce+2*i,3,"%02x",random[i]);
++   if(esp_wifi_set_mode(WIFI_MODE_APSTA)!=ESP_OK || esp_wifi_set_config(WIFI_IF_AP,&config)!=ESP_OK){esp_wifi_set_mode(WIFI_MODE_STA);message("Could not start setup Wi-Fi");continue;}
++   httpd_config_t h=HTTPD_DEFAULT_CONFIG();h.max_open_sockets=2;h.recv_wait_timeout=5;h.send_wait_timeout=5;h.stack_size=12288;
++   if(httpd_start(&http,&h)==ESP_OK){
++    httpd_uri_t root={.uri="/",.method=HTTP_GET,.handler=page};httpd_register_uri_handler(http,&root);
++    httpd_uri_t post={.uri="/save",.method=HTTP_POST,.handler=save};httpd_register_uri_handler(http,&post);
++    httpd_uri_t scan={.uri="/networks",.method=HTTP_GET,.handler=networks};httpd_register_uri_handler(http,&scan);
++    expires=esp_timer_get_time()+300000000;
++    portENTER_CRITICAL(&lock);state.active=true;snprintf(state.ssid,sizeof(state.ssid),"%s",config.ap.ssid);snprintf(state.password,sizeof(state.password),"%.24s",config.ap.password);portEXIT_CRITICAL(&lock);
++    message("Phone: http://192.168.4.1");
++   }else {http=NULL;esp_wifi_set_mode(WIFI_MODE_STA);message("Setup unavailable. Retry.");}
+   }
+-  memset(&command,0,sizeof command);portENTER_CRITICAL(&lock);public_state.pending=false;portEXIT_CRITICAL(&lock);
+- }
+- unsigned expected=RADIO_IDLE;(void)atomic_compare_exchange_strong(&radio_owner,&expected,RADIO_AUTO);
+- pocket_wifi_snapshot current=snapshot();unsigned owner=atomic_load(&radio_owner);pocket_wifi_tick(&engine,now/1000,&current,owner==RADIO_VOICE || owner==RADIO_POLL);
+- current=snapshot();
+- if(atomic_load(&radio_owner)==RADIO_AUTO && !pocket_wifi_attempting(&engine) && (!current.connected || engine.connection==POCKET_WIFI_CONNECTED)){
+-  if(atomic_load(&setup_pending)){atomic_store(&radio_owner,RADIO_SETUP);start_setup(esp_timer_get_time());}
+-  else atomic_store(&radio_owner,RADIO_IDLE);
++  if(http && esp_timer_get_time()>expires){httpd_stop(http);http=NULL;esp_wifi_set_mode(WIFI_MODE_STA);portENTER_CRITICAL(&lock);state.active=false;memset(state.password,0,sizeof(state.password));portEXIT_CRITICAL(&lock);message("Setup expired. Hold OK.");}
++  if(reboot_pending && esp_timer_get_time()>reboot_at)esp_restart();
++  pocket_setup_state copy;pocket_setup_read(&copy);
++  if(!http && copy.configured && !copy.wifi_connected && esp_timer_get_time()-last_attempt>10000000){esp_wifi_connect();last_attempt=esp_timer_get_time();}
+  }
+- publish();
+ }
+-static void work(void *unused){(void)unused;for(;;){bool notified=ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(250))!=0;work_step(notified,esp_timer_get_time());}}
+-esp_err_t pocket_setup_init(void){
+- esp_err_t error=nvs_flash_init();if(error!=ESP_OK)return error;
+- pocket_wifi_book book;pocket_wifi_store_result loaded=pocket_wifi_store_load(&profile_store,&book);bool legacy=false;
+- if(loaded==POCKET_WIFI_STORE_ABSENT){
+-  pocket_wifi_book_init(&book);pocket_wifi_profile original;
+-  if(pocket_pairing_legacy_wifi(&original))legacy=pocket_wifi_book_import(&book,&original);
+-  memset(&original,0,sizeof original);
+- }
+- pocket_wifi_ops ops={NULL,radio_disconnect,radio_connect,radio_scan,save_profiles};pocket_wifi_init(&engine,&book,&ops);memset(&book,0,sizeof book);
+- state.configured=engine.book.count>0;public_state.paired=pairing_saved();publish();
+- ESP_LOGI("pocket_wifi_boot","profiles=%u legacy=%u store=%u writable=%u",(unsigned)engine.book.count,(unsigned)legacy,(unsigned)loaded,(unsigned)profile_store.writable);
+- ESP_ERROR_CHECK(esp_netif_init());ESP_ERROR_CHECK(esp_event_loop_create_default());esp_netif_create_default_wifi_sta();esp_netif_create_default_wifi_ap();
++esp_err_t pocket_setup_init(void) {
++ /* Never erase existing NVS automatically on an initialization error. */
++ esp_err_t result=nvs_flash_init();if(result!=ESP_OK)return result;
++ ESP_ERROR_CHECK(esp_netif_init());ESP_ERROR_CHECK(esp_event_loop_create_default());
++ esp_netif_create_default_wifi_sta();esp_netif_create_default_wifi_ap();
+  wifi_init_config_t init=WIFI_INIT_CONFIG_DEFAULT();ESP_ERROR_CHECK(esp_wifi_init(&init));
+  ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+- ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT,ESP_EVENT_ANY_ID,wifi_event,NULL));ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event,NULL));
+- commands=xQueueCreate(1,sizeof(uint32_t));if(!commands)return ESP_ERR_NO_MEM;
+- ESP_ERROR_CHECK(esp_wifi_start());
+- if(xTaskCreate(work,"pocket_setup",6144,NULL,4,&worker)!=pdPASS){vQueueDelete(commands);commands=NULL;return ESP_ERR_NO_MEM;}
+- message(state.configured?"Reconnecting to saved Wi-Fi":"Hold OK on Status to add Wi-Fi");return ESP_OK;
+-}
+-void pocket_setup_request(void){
+- if(!worker)return;
+- unsigned expected=RADIO_IDLE;
+- if(atomic_compare_exchange_strong(&radio_owner,&expected,RADIO_SETUP))xTaskNotifyGive(worker);
+- else if(expected==RADIO_AUTO || expected==RADIO_POLL){atomic_store(&setup_pending,true);message("Opening setup after current request");xTaskNotifyGive(worker);}
+- else if(expected==RADIO_VOICE)message("Finish voice before Wi-Fi setup");
+-}
++ ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT,ESP_EVENT_ANY_ID,wifi_event,NULL));
++ ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event,NULL));
++ wifi_config_t config;state.configured=read_wifi(&config);
++ if(state.configured)ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA,&config));
++ memset(&config,0,sizeof(config));ESP_ERROR_CHECK(esp_wifi_start());
++ if(xTaskCreate(work,"pocket_setup",6144,NULL,4,&worker)!=pdPASS)return ESP_ERR_NO_MEM;
++ if(!state.configured)pocket_setup_request();
++ return ESP_OK;
++}
++void pocket_setup_request(void){if(worker)xTaskNotifyGive(worker);}
+diff --git b/firmware/main/pocket_setup.h a/firmware/main/pocket_setup.h
+index ca3e06a..4937a73 100644
+--- b/firmware/main/pocket_setup.h
++++ a/firmware/main/pocket_setup.h
+@@ -8,14 +8,6 @@ typedef struct {
+ esp_err_t pocket_setup_init(void);
+ void pocket_setup_request(void);
+ void pocket_setup_read(pocket_setup_state *out);
+-/* Radio ownership spans voice queue admission through terminal cleanup. */
+-bool pocket_setup_voice_acquire(void);
+-void pocket_setup_voice_release(void);
+-/* Background GET admission; setup waits for the current request to finish.
+-   Check continue before each subsequent request, then close HTTP and release. */
+-bool pocket_setup_poll_acquire(void);
+-bool pocket_setup_poll_continue(void);
+-void pocket_setup_poll_release(void);
+ 
+ /* Device-only connection settings. Never log or expose token contents. */
+ typedef struct { char origin[193], token[129], ca[2049]; } pocket_link_config;
+diff --git b/firmware/main/pocket_setup.html a/firmware/main/pocket_setup.html
+index e25db9f..80c6fb5 100644
+--- b/firmware/main/pocket_setup.html
++++ a/firmware/main/pocket_setup.html
+@@ -1,226 +1,26 @@
+ <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="pocket-nonce" content="__POCKET_NONCE__"><title>Connect Hermes Pocket</title>
+-<style>
+-:root{color-scheme:dark;--bg:#101c25;--panel:#1a2c39;--line:#365061;--ink:#f4f1e9;--muted:#b9cbd6;--mint:#9ce4ce}*{box-sizing:border-box}body{font:16px system-ui,sans-serif;max-width:480px;margin:auto;padding:24px 16px;background:var(--bg);color:var(--ink)}h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:0 0 12px}p,small{line-height:1.5;color:var(--muted)}section,details{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:16px 0}label{display:block;margin:16px 0 8px}input,textarea,select,button{width:100%;font:inherit;border-radius:8px;padding:12px;min-height:48px}input,textarea,select{background:#0c1922;color:#fff;border:1px solid #678091}button{background:var(--mint);color:#102820;border:0;font-weight:700;margin-top:12px;cursor:pointer}button.secondary{background:#2a4354;color:#fff}button:disabled{opacity:.6;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--mint);outline-offset:3px}summary{cursor:pointer;padding:8px 0;font-weight:700}small{display:block;margin-top:8px}.tag{color:var(--mint);font-size:12px;letter-spacing:2px}.message{white-space:pre-wrap;overflow-wrap:anywhere;color:#ffd1a3}.message:empty{display:none}#connection{color:var(--mint);font-weight:700}#profile-count,#netstatus,#session-status{font-size:14px}#profiles{list-style:none;padding:0;margin:0}#profiles li{border-top:1px solid var(--line);padding:12px 0;overflow-wrap:anywhere}#profiles strong{display:block}#profiles small{margin:4px 0}.actions{display:flex;flex-wrap:wrap;gap:8px}.actions button{flex:1 1 96px;width:auto;margin-top:8px}input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle;margin-right:8px}footer{margin:24px 0 8px}textarea{resize:vertical}
+-</style>
+-<main><div class="tag">HERMES POCKET / SETUP</div><h1>Let's get connected</h1>
+-<p>Save up to five home Wi-Fi networks. Pocket tests each new password before saving it.</p>
+-<p id="session-status" role="status">Checking your setup session...</p>
+-<button id="retry-status" type="button" class="secondary">Check status</button>
+-<section aria-labelledby="saved-heading"><h2 id="saved-heading">Saved Wi-Fi</h2>
+-<p id="connection" role="status">Checking Pocket's Wi-Fi...</p>
+-<p id="hermes-note">Wi-Fi and Hermes availability are separate. If Pocket says Hermes is unreachable, check its bridge connection or pairing even when Wi-Fi is connected.</p>
+-<p id="profile-count">Checking saved networks...</p><ul id="profiles" aria-label="Saved Wi-Fi networks"></ul>
+-<small id="storage-note"></small></section>
+-<section aria-labelledby="wifi-heading"><h2 id="wifi-heading">Add or update Wi-Fi</h2>
+-<form id="wifi" novalidate>
+-<label for="networks">Nearby networks - 2.4 GHz</label><select id="networks"><option value="">Choose a network...</option></select>
+-<button id="scan" type="button" class="secondary" disabled>Scan Wi-Fi</button>
+-<p id="netstatus" role="status">Scan for nearby networks, or type a hidden network's name below. Open networks are unsupported.</p>
+-<label for="ssid">Network name</label><input id="ssid" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="32" aria-describedby="ssid-help" placeholder="Select above, or type a hidden network">
+-<small id="ssid-help">Use your router's Wi-Fi name, including spaces and capitals. Maximum 32 UTF-8 bytes.</small>
+-<label for="password">Wi-Fi password</label><input id="password" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" maxlength="63" placeholder="Your home Wi-Fi password">
+-<label><input id="showpass" type="checkbox">Show password</label>
+-<button id="join" type="submit" disabled>Test and save Wi-Fi</button>
+-</form><button id="cancel" type="button" class="secondary" disabled>Cancel Wi-Fi test</button>
+-<p id="result" class="message" role="alert" aria-live="assertive"></p>
+-<small>Existing Wi-Fi profiles and Hermes pairing stay saved if a test fails or is cancelled. To change a saved password, enter that network's name again.</small></section>
+-<details><summary>Hermes pairing - optional</summary>
+-<p id="pairing-state" role="status">Your existing pairing is preserved by default.</p>
+-<p>Blank fields keep stored values. Only fields you enter here are updated when you tap Save Hermes pairing.</p>
+-<form id="pairing" novalidate>
+-<label for="windows">Windows bridge HTTPS address</label><input id="windows" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://your-bridge.example" maxlength="192">
+-<label for="linux">Linux bridge HTTPS address</label><input id="linux" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="https://your-bridge.example" maxlength="192">
+-<label for="token">Pocket pairing token</label><input id="token" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" maxlength="128">
+-<label for="ca">Bridge CA certificate - optional</label><textarea id="ca" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="2048" rows="4"></textarea>
+-<small>Use only your dedicated Pocket pairing token. Saved pairing values are never shown on this page.</small>
+-<button id="pair-save" type="submit" disabled>Save Hermes pairing</button>
+-<p id="pair-result" class="message" role="alert" aria-live="assertive"></p></form></details>
+-<footer><small>The owner opens this secure setup hotspot for five minutes. Keep your phone on Pocket's hotspot while using this page. If setup expires, hold OK on Pocket to reopen it. When finished, reconnect your phone to your normal Wi-Fi.</small></footer></main>
++<style>body{font:16px system-ui,sans-serif;max-width:480px;margin:auto;padding:24px 18px;background:#101c25;color:#f4f1e9}h1{font-size:28px;margin:6px 0}p,small{line-height:1.5;color:#b9cbd6}section,details{background:#1a2c39;border:1px solid #365061;border-radius:16px;padding:18px;margin:18px 0}label{display:block;margin:16px 0 6px}input,textarea,select,button{box-sizing:border-box;width:100%;font:inherit;border-radius:10px;padding:13px;min-height:48px}input,textarea,select{background:#0c1922;color:#fff;border:1px solid #678091}button{background:#9ce4ce;color:#102820;border:0;font-weight:700;margin-top:12px;cursor:pointer}button.secondary{background:#2a4354;color:#fff}button:disabled{opacity:.6;cursor:wait}#result{white-space:pre-wrap;color:#ffd1a3;min-height:48px}#netstatus{font-size:14px}summary{cursor:pointer;padding:6px}small{display:block;margin-top:10px}.tag{color:#9ce4ce;font-size:13px;letter-spacing:2px}input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle}#saved{color:#9ce4ce}</style>
++<div class="tag">HERMES POCKET · SETUP</div><h1>Let's get connected</h1><p>Choose your home Wi-Fi. Your phone stays on the Pocket hotspot until settings are saved.</p>
++<form id="setup" novalidate><section><h2>1. Home Wi-Fi</h2><label for="networks">Nearby networks · 2.4 GHz</label><select id="networks"><option value="">Choose a network…</option></select><button id="scan" type="button" class="secondary">Scan Wi-Fi</button><p id="netstatus" role="status">Tap Scan Wi-Fi to find nearby networks.</p><label for="ssid">Network name</label><input id="ssid" autocomplete="off" maxlength="31" placeholder="Select above, or type a hidden network"><small>This is your router's Wi-Fi name, not the Pocket hotspot.</small><label for="password">Wi-Fi password</label><input id="password" type="password" autocomplete="off" maxlength="63" placeholder="Your home Wi-Fi password"><label><input id="showpass" type="checkbox"> Show password</label></section>
++<details><summary>2. Hermes connection · optional for now</summary><p>Leave these blank to set up Wi-Fi first. Only use your dedicated Pocket pairing token.</p><label for="windows">Windows bridge HTTPS address</label><input id="windows" placeholder="https://your-bridge.example" maxlength="192"><label for="linux">Linux bridge HTTPS address</label><input id="linux" placeholder="https://your-bridge.example" maxlength="192"><label for="token">Pocket pairing token</label><input id="token" type="password" maxlength="128" autocomplete="off"><label for="ca">Bridge CA certificate · optional</label><textarea id="ca" maxlength="2048" rows="4"></textarea><small>Blank fields remove existing bridge pairing. Settings are stored in unencrypted device flash. Never enter provider API keys here.</small></details>
++<p id="result" role="alert" aria-live="assertive"></p><button id="save" type="submit">Save Wi-Fi and restart</button><p id="saved" role="status"></p><small>The hotspot expires after 5 minutes. If it expires, hold OK on Pocket to reopen setup. Saving restarts Pocket; then reconnect your phone to your normal Wi-Fi.</small></form>
+ <script>
+ 'use strict';
+ const $=id=>document.getElementById(id);
+-const byteLength=value=>new TextEncoder().encode(value).length;
+-const pairingFields=['windows','linux','token','ca'];
+-let snapshot=null,reachable=false,expired=false,closed=false,statusBusy=false,actionBusy=false,pairBusy=false;
+-let pollTimer=null,pending=null,scanPending=null,profileSignature='',networkSignature='',profileButtons=[],statusEpoch=0;
+-const controllers=new Set();
+-
+-function validateWifi(body){
+- if(!body.ssid||byteLength(body.ssid)>32)return 'Enter a network name of 1-32 UTF-8 bytes.';
+- if(byteLength(body.password)<8||byteLength(body.password)>63)return 'Wi-Fi password must be 8-63 UTF-8 bytes. Enter your home router password.';
++const form=$('setup'),saveButton=$('save'),scanButton=$('scan'),status=$('result');
++const byteLength=s=>new TextEncoder().encode(s).length;
++function validateSettings(b){
++ if(!b.ssid||byteLength(b.ssid)>31)return 'Choose your home Wi-Fi, or enter a network name of at most 31 bytes.';
++ if(byteLength(b.password)<8||byteLength(b.password)>63)return 'Wi-Fi password must be 8–63 bytes. Enter your home router password.';
++ for(const key of ['windows','linux'])if(b[key]&&(byteLength(b[key])>192||!/^https:\/\/[^\s@?#]+$/.test(b[key])))return 'Use an HTTPS bridge address, or leave the optional Hermes fields blank.';
++ if(b.token&&(b.token.length<32||b.token.length>128||!/^[\x21-\x7e]+$/.test(b.token)))return 'Pocket pairing token must be 32–128 visible characters, or leave it blank.';
++ if(byteLength(b.ca)>2048||(b.ca&&(!b.ca.startsWith('-----BEGIN CERTIFICATE-----')||!b.ca.includes('-----END CERTIFICATE-----'))))return 'Enter a valid PEM certificate, or leave the optional certificate blank.';
+  return '';
+ }
+-function validatePairing(body){
+- for(const key of ['windows','linux'])if(body[key]&&(byteLength(body[key])>192||!/^https:\/\/[^\s@?#]+$/.test(body[key])))return 'Use an HTTPS bridge address of at most 192 bytes, or leave that field blank to keep it.';
+- if(body.token&&(body.token.length<32||body.token.length>128||!/^[\x21-\x7e]+$/.test(body.token)))return 'Pocket pairing token must be 32-128 visible characters, or leave it blank to keep it.';
+- if(byteLength(body.ca)>2048||(body.ca&&(!body.ca.startsWith('-----BEGIN CERTIFICATE-----')||!body.ca.includes('-----END CERTIFICATE-----'))))return 'Enter a valid PEM certificate of at most 2048 bytes, or leave it blank to keep it.';
+- return '';
+-}
+-function clearPairing(){for(const key of pairingFields)$(key).value=''}
+-function stopPolling(){clearTimeout(pollTimer);pollTimer=null}
+-function expireSetup(){
+- expired=true;reachable=false;stopPolling();for(const controller of controllers)controller.abort();
+- $('password').value='';clearPairing();pending=null;scanPending=null;
+- $('session-status').textContent='Setup expired. Hold OK on Pocket to reopen setup, then reconnect to its hotspot.';
+- $('result').textContent='';$('pair-result').textContent='';updateControls();
+-}
+-async function request(path,body){
+- const controller=new AbortController();controllers.add(controller);
+- const timer=setTimeout(()=>controller.abort(),15000);
+- const options={headers:{'X-Pocket-Setup':document.querySelector('meta[name="pocket-nonce"]').content},cache:'no-store',signal:controller.signal};
+- if(body!==undefined){options.method='POST';options.headers['Content-Type']='application/json';options.body=JSON.stringify(body)}
+- try{const result=await fetch(path,options);if(result.status===403)expireSetup();return result}
+- finally{clearTimeout(timer);controllers.delete(controller)}
+-}
+-function updateControls(){
+- const blocked=closed||expired||!reachable||actionBusy||pairBusy;
+- const running=!!pending||!!snapshot&&snapshot.join_result===1;
+- const scanning=!!scanPending||!!snapshot&&snapshot.scan_state===1;
+- const writable=!!snapshot&&snapshot.store_writable;
+- $('join').disabled=blocked||running||scanning||!writable;
+- $('scan').disabled=blocked||running||scanning;
+- $('pair-save').disabled=blocked||running||scanning||!writable;
+- $('cancel').disabled=blocked||!running||!!pending&&pending.kind==='cancel';
+- $('retry-status').disabled=closed||expired||statusBusy;
+- for(const buttons of profileButtons){
+-  buttons.connect.disabled=blocked||running||scanning||buttons.connected;
+-  buttons.forget.disabled=blocked||running||scanning||!writable;
+- }
+-}
+-function renderProfiles(data){
+- $('profile-count').textContent=data.profiles.length+' / '+data.capacity+' saved networks';
+- $('storage-note').textContent=!data.store_writable?'Saved-settings storage is not writable. Saved networks can still connect; adding, forgetting, and pairing changes are unavailable.':
+-  data.profiles.length>=data.capacity?'All '+data.capacity+' slots are full. Explicitly forget a network to add another. A saved network can still be retested with a new password. Nothing is automatically removed.':
+-  'Pocket keeps existing profiles and Hermes pairing when you add another network. Nothing is automatically removed.';
+- const signature=JSON.stringify(data.profiles);if(signature===profileSignature)return;profileSignature=signature;
+- $('profiles').replaceChildren();profileButtons=[];
+- if(!data.profiles.length){const empty=document.createElement('li');empty.textContent='No saved networks yet. Add one below.';$('profiles').appendChild(empty)}
+- for(const profile of data.profiles){
+-  const row=document.createElement('li'),name=document.createElement('strong'),note=document.createElement('small'),actions=document.createElement('div');
+-  name.textContent=profile.ssid;note.textContent=profile.connected?'Connected now':'Saved on Pocket';actions.className='actions';
+-  const connect=document.createElement('button'),forget=document.createElement('button');
+-  connect.type=forget.type='button';connect.textContent=profile.connected?'Connected':'Connect';forget.textContent='Forget';
+-  connect.className=forget.className='secondary';connect.setAttribute('aria-label','Connect to '+profile.ssid);forget.setAttribute('aria-label','Forget '+profile.ssid);
+-  connect.addEventListener('click',()=>{if(!connect.disabled)return queueWifi('connect',{ssid:profile.ssid})});
+-  forget.addEventListener('click',()=>{if(!forget.disabled&&window.confirm('Forget "'+profile.ssid+'" from Pocket? Its saved password will be removed. Hermes pairing will be kept.'))return queueWifi('forget',{ssid:profile.ssid})});
+-  actions.appendChild(connect);actions.appendChild(forget);row.appendChild(name);row.appendChild(note);row.appendChild(actions);$('profiles').appendChild(row);
+-  profileButtons.push({connect,forget,connected:profile.connected});
+- }
+-}
+-function renderNetworks(data){
+- if(scanPending&&scanPending.operation!==null&&data.operation<scanPending.operation)return;
+- if(data.scan_state===1){$('netstatus').textContent='Scanning nearby Wi-Fi...';return}
+- if(data.scan_state===3){scanPending=null;$('netstatus').textContent='Scan failed. Scan again, or type your network name below.';return}
+- if(data.scan_state===0){if(scanPending&&scanPending.operation===null){scanPending=null;$('netstatus').textContent='Could not confirm the scan. Scan again, or type your network name below.'}return}
+- if(data.scan_state!==2)return;
+- scanPending=null;const signature=JSON.stringify(data.networks);if(signature===networkSignature)return;networkSignature=signature;
+- const list=$('networks'),selected=list.value;list.replaceChildren();const first=document.createElement('option');first.value='';first.textContent='Choose a network...';list.appendChild(first);
+- for(const network of data.networks){const option=document.createElement('option');option.value=network.ssid;
+-  option.textContent=network.ssid+' - '+(network.rssi>-60?'Strong':network.rssi>-75?'Fair':'Weak')+(network.open?' - Open network unsupported':'');
+-  option.disabled=network.open;list.appendChild(option)}
+- list.value=data.networks.some(network=>network.ssid===selected&&!network.open)?selected:'';
+- $('netstatus').textContent=data.networks.length?'Select your network, then enter its password. You can also type a hidden network below.':'No networks found. Scan again, or type your network name below.';
+-}
+-function finishWifi(data){
+- if(!pending&&data.join_result===1)pending={kind:'observe',operation:data.operation};
+- if(!pending)return;
+- if(pending.operation===null){
+-  if(data.join_result===1){pending.observed=data.operation;return}
+-  if(data.operation>pending.baseline||pending.observed===data.operation){pending=null;$('result').textContent='Could not confirm the requested action. Check the saved list and Wi-Fi status before trying again. No settings were automatically resubmitted.'}
+-  return;
+- }
+- if(data.operation<pending.operation)return;
+- if(data.operation!==pending.operation){pending=null;$('result').textContent='Could not confirm completion because another Wi-Fi operation started. Check the saved list and Wi-Fi status before trying again.';return}
+- if(data.join_result===0)return;
+- if(data.join_result===1){$('result').textContent=pending.kind==='join'?'Testing Wi-Fi before saving. Existing profiles and Hermes pairing stay saved.':
+-  pending.kind==='connect'?'Connecting to saved Wi-Fi...':pending.kind==='cancel'?'Cancelling Wi-Fi test. Waiting for confirmation...':
+-  pending.kind==='forget'?'Removing saved network. Waiting for confirmation...':'A Wi-Fi operation is running on Pocket. Wait for confirmation or cancel.';return}
+- const kind=pending.kind;pending=null;
+- const kept=' Existing saved Wi-Fi profiles and Hermes pairing were kept.';
+- const failure=['The Wi-Fi test failed.','The Wi-Fi test failed.','The Wi-Fi test failed.','The Wi-Fi test failed.',
+-  'Network not found. Check the name, 2.4 GHz coverage, and signal.','Wi-Fi password was rejected. Check the router password.',
+-  'Wi-Fi connected without an IP address. Check your router and try again.','Wi-Fi connection failed. Check the router and try again.'];
+- if(data.join_result===2)$('result').textContent=kind==='connect'?'Connected to saved Wi-Fi. Hermes pairing was kept.':
+-  kind==='forget'||kind==='cancel'?'Could not confirm the requested action. Check the saved list and Wi-Fi status.':'Wi-Fi tested and saved. Hermes pairing was kept. You can add another network or finish setup.';
+- else if(data.join_result===3)$('result').textContent=failure[data.connection]+kept+' Enter the password again to retry.';
+- else if(data.join_result===4)$('result').textContent='Wi-Fi test cancelled.'+kept+' Check the connection status above while Pocket restores its previous Wi-Fi.';
+- else if(data.join_result===5)$('result').textContent='The saved Wi-Fi list is full. Explicitly forget a network before adding another.'+kept;
+- else if(data.join_result===6)$('result').textContent='Could not confirm saving the requested change. Check saved networks before retrying. Hermes pairing was kept.';
+- else if(data.join_result===7)$('result').textContent='Saved network forgotten. Hermes pairing was kept.';
+-}
+-function renderStatus(data){
+- snapshot=data;reachable=true;
+- if(data.expires_seconds<=0){expireSetup();return}
+- $('session-status').textContent='Setup hotspot closes in about '+Math.ceil(data.expires_seconds/60)+' minute(s). Keep your phone on Pocket\'s hotspot.';
+- const connection=['Wi-Fi is disconnected.','Connecting to Wi-Fi...','Getting an IP address...',
+-  'Wi-Fi connected.','Wi-Fi network not found.','Wi-Fi password was rejected.','Wi-Fi has no IP address.','Wi-Fi connection failed.'];
+- $('connection').textContent=data.connected?'Wi-Fi connected to '+data.ssid+'.':connection[data.connection]||'Checking Wi-Fi status...';
+- $('pairing-state').textContent=data.pairing_saved?'Saved Hermes pairing is preserved. Blank fields keep its stored values.':'No Hermes pairing is saved yet. You can set up Wi-Fi first.';
+- renderProfiles(data);renderNetworks(data);finishWifi(data);
+-}
+-async function pollStatus(){
+- if(expired||closed||statusBusy)return;stopPolling();statusBusy=true;updateControls();
+- // Only a GET started after the queue request settles can confirm its action.
+- const epoch=statusEpoch;
+- try{const result=await request('/wifi/status');if(expired||closed||epoch!==statusEpoch||actionBusy)return;if(result.status!==200)throw new Error('status unavailable');
+-  const data=await result.json();if(closed||expired||epoch!==statusEpoch||actionBusy)return;
+-  if(!data||!Array.isArray(data.profiles)||!Array.isArray(data.networks)||data.capacity!==5||!Number.isInteger(data.operation))throw new Error('invalid status');
+-  renderStatus(data);
+- }catch(error){if(!expired&&!closed&&epoch===statusEpoch&&!actionBusy){reachable=false;$('session-status').textContent='Cannot reach Pocket. Reconnect to its setup hotspot, then check status. No settings will be automatically resubmitted.';
+-  if(pending)$('result').textContent='Could not confirm completion of this Wi-Fi action. Pocket may still be testing or saving. Reconnect to its hotspot and check status. No settings will be automatically resubmitted.'}}
+- finally{statusBusy=false;updateControls();if(!expired&&!closed)pollTimer=setTimeout(()=>pollStatus(),1500)}
+-}
+-async function queueWifi(kind,body){
+- if(expired||closed||!reachable||actionBusy||pairBusy)return;
+- const running=!!pending||snapshot.join_result===1,scanning=!!scanPending||snapshot.scan_state===1;
+- if(kind==='cancel'?!running||pending&&pending.kind==='cancel':running||scanning)return;
+- if((kind==='join'||kind==='forget')&&!snapshot.store_writable)return;
+- const baseline=snapshot.operation;actionBusy=true;statusEpoch++;updateControls();
+- $('result').textContent=kind==='join'?'Sending Wi-Fi test request...':kind==='connect'?'Connecting to saved Wi-Fi...':kind==='forget'?'Requesting network removal...':'Requesting cancellation...';
+- try{const result=await request('/wifi/'+kind,body);if(expired||closed)return;
+-  if(!result.ok){$('result').textContent=(await result.text())+' Check the fields or Wi-Fi status before trying again.';return}
+-  if(result.status!==202)throw new Error('acceptance uncertain');
+-  const data=await result.json();if(data.accepted!==true||!Number.isInteger(data.operation))throw new Error('acceptance uncertain');
+-  pending={kind,operation:data.operation};if(kind==='join')$('password').value='';
+-  $('result').textContent=kind==='join'?'Testing Wi-Fi before saving. Existing profiles and Hermes pairing stay saved.':
+-   kind==='connect'?'Connecting to saved Wi-Fi...':kind==='forget'?'Removing saved network. Waiting for confirmation...':'Cancelling Wi-Fi test. Waiting for confirmation...';
+- }catch(error){if(!expired&&!closed){if(kind==='join')$('password').value='';pending={kind,operation:null,baseline};
+-  $('result').textContent='Could not confirm whether Pocket accepted this action. Check status or cancel before trying again. No settings will be automatically resubmitted.'}}
+- finally{actionBusy=false;statusEpoch++;updateControls()}
+-}
++async function request(path,options){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{return await fetch(path,{...options,signal:controller.signal,cache:'no-store'})}finally{clearTimeout(timer)}}
++function nonce(){return document.querySelector('meta[name="pocket-nonce"]').content}
+ $('showpass').addEventListener('change',()=>{$('password').type=$('showpass').checked?'text':'password'});
+-$('networks').addEventListener('change',()=>{
+- const selected=$('networks').value;if(selected&&snapshot&&snapshot.networks.some(network=>network.ssid===selected&&!network.open)){$('ssid').value=selected;$('password').focus()}
+-});
+-$('scan').addEventListener('click',async()=>{
+- if($('scan').disabled)return;actionBusy=true;updateControls();$('netstatus').textContent='Scanning nearby Wi-Fi...';
+- try{const result=await request('/networks');if(expired||closed)return;
+-  if(!result.ok){$('netstatus').textContent=(await result.text())+' You can type your network name below.';return}
+-  if(result.status!==202)throw new Error('scan uncertain');const data=await result.json();
+-  if(data.accepted!==true||!Number.isInteger(data.operation))throw new Error('scan uncertain');scanPending={operation:data.operation};networkSignature='';
+- }catch(error){if(!expired&&!closed){scanPending={operation:null};$('netstatus').textContent='Could not confirm the scan. Check status, or type your network name below.'}}
+- finally{actionBusy=false;updateControls()}
+-});
+-$('wifi').addEventListener('submit',event=>{
+- event.preventDefault();if($('join').disabled)return;const body={ssid:$('ssid').value,password:$('password').value};const error=validateWifi(body);
+- if(error){$('result').textContent=error;return}
+- if(snapshot.profiles.length>=snapshot.capacity&&!snapshot.profiles.some(profile=>profile.ssid===body.ssid)){$('result').textContent='The saved Wi-Fi list is full. Explicitly forget a network before adding another. Nothing was removed.';return}
+- return queueWifi('join',body);
+-});
+-$('cancel').addEventListener('click',()=>{if(!$('cancel').disabled)return queueWifi('cancel',{})});
+-$('retry-status').addEventListener('click',()=>{if(!$('retry-status').disabled)return pollStatus()});
+-$('pairing').addEventListener('submit',async event=>{
+- event.preventDefault();if($('pair-save').disabled)return;const body={};for(const key of pairingFields)body[key]=$(key).value;
+- const error=validatePairing(body);if(error){$('pair-result').textContent=error;return}
+- if(pairingFields.every(key=>!body[key])){$('pair-result').textContent='Existing Hermes pairing kept unchanged. Enter a field only when you want to update it.';return}
+- pairBusy=true;updateControls();$('pair-result').textContent='Saving Hermes pairing...';
+- try{const result=await request('/pairing',body);if(expired||closed)return;
+-  if(!result.ok){$('pair-result').textContent=(await result.text())+' Check the optional fields before trying again.';return}
+-  if(result.status!==200)throw new Error('pairing uncertain');clearPairing();$('pair-result').textContent='Hermes pairing saved. Fields left blank kept their stored values.';
+- }catch(error){if(!expired&&!closed){clearPairing();$('pair-result').textContent='Could not confirm saving Hermes pairing. Check Pocket before entering these values again. No pairing values will be automatically resubmitted.'}}
+- finally{pairBusy=false;updateControls()}
+-});
+-window.addEventListener('pagehide',()=>{closed=true;stopPolling();for(const controller of controllers)controller.abort();$('password').value='';clearPairing();updateControls()});
+-window.addEventListener('pageshow',()=>{if(closed&&!expired){closed=false;reachable=false;return pollStatus()}});
+-updateControls();pollStatus();
++$('networks').addEventListener('change',()=>{if($('networks').value){$('ssid').value=$('networks').value;$('password').focus()}});
++scanButton.addEventListener('click',async()=>{scanButton.disabled=true;$('netstatus').textContent='Scanning nearby Wi-Fi…';try{const r=await request('/networks',{headers:{'X-Pocket-Setup':nonce()}});if(!r.ok)throw new Error(await r.text());const data=await r.json();const list=$('networks');list.replaceChildren();const first=document.createElement('option');first.value='';first.textContent='Choose a network…';list.appendChild(first);for(const n of data.networks){const o=document.createElement('option');o.value=n.ssid;o.textContent=n.ssid+' · '+(n.rssi>-60?'Strong':n.rssi>-75?'Fair':'Weak')+(n.open?' · Open network unsupported':'');o.disabled=n.open;list.appendChild(o)}$('netstatus').textContent=data.networks.length?'Select your network, then enter its password.':'No networks found. Scan again, or type the name below.'}catch(e){$('netstatus').textContent='Scan unavailable. You can type your network name below. '+e.message}finally{scanButton.disabled=false}});
++form.addEventListener('submit',async e=>{e.preventDefault();if(saveButton.disabled)return;const b={};for(const key of ['ssid','password','windows','linux','token','ca'])b[key]=$(key).value;if(validateSettings(b)){status.textContent=validateSettings(b);return}status.textContent='Saving settings…';saveButton.disabled=true;scanButton.disabled=true;try{const r=await request('/save',{method:'POST',headers:{'Content-Type':'application/json','X-Pocket-Setup':nonce()},body:JSON.stringify(b)});const text=await r.text();if(!r.ok){status.textContent=text+'\nCheck the fields and try again. If setup expired, hold OK on Pocket and reconnect.';saveButton.disabled=false;scanButton.disabled=false;return}status.textContent='';$('saved').textContent='Saved! Pocket is restarting. Reconnect your phone to your normal Wi-Fi and check Pocket’s screen.';saveButton.textContent='Saved · restarting';$('password').value='';$('token').value=''}catch(e){status.textContent='Could not confirm saving. Check Pocket’s screen. If it did not restart, reconnect to its setup hotspot and try again.';saveButton.disabled=false;scanButton.disabled=false}});
+ </script></html>
+diff --git b/firmware/main/pocket_setup_page.h a/firmware/main/pocket_setup_page.h
+index 6fcfccc..2e36f29 100644
+--- b/firmware/main/pocket_setup_page.h
++++ a/firmware/main/pocket_setup_page.h
+@@ -1,3 +1,3 @@
+ /* Generated from pocket_setup.html. MIT. */
+ static const char setup_html_before[] = "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"pocket-nonce\" content=\"";
+-static const char setup_html_after[] = "\"><title>Connect Hermes Pocket</title>\n<style>\n:root{color-scheme:dark;--bg:#101c25;--panel:#1a2c39;--line:#365061;--ink:#f4f1e9;--muted:#b9cbd6;--mint:#9ce4ce}*{box-sizing:border-box}body{font:16px system-ui,sans-serif;max-width:480px;margin:auto;padding:24px 16px;background:var(--bg);color:var(--ink)}h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:0 0 12px}p,small{line-height:1.5;color:var(--muted)}section,details{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:16px 0}label{display:block;margin:16px 0 8px}input,textarea,select,button{width:100%;font:inherit;border-radius:8px;padding:12px;min-height:48px}input,textarea,select{background:#0c1922;color:#fff;border:1px solid #678091}button{background:var(--mint);color:#102820;border:0;font-weight:700;margin-top:12px;cursor:pointer}button.secondary{background:#2a4354;color:#fff}button:disabled{opacity:.6;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid var(--mint);outline-offset:3px}summary{cursor:pointer;padding:8px 0;font-weight:700}small{display:block;margin-top:8px}.tag{color:var(--mint);font-size:12px;letter-spacing:2px}.message{white-space:pre-wrap;overflow-wrap:anywhere;color:#ffd1a3}.message:empty{display:none}#connection{color:var(--mint);font-weight:700}#profile-count,#netstatus,#session-status{font-size:14px}#profiles{list-style:none;padding:0;margin:0}#profiles li{border-top:1px solid var(--line);padding:12px 0;overflow-wrap:anywhere}#profiles strong{display:block}#profiles small{margin:4px 0}.actions{display:flex;flex-wrap:wrap;gap:8px}.actions button{flex:1 1 96px;width:auto;margin-top:8px}input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle;margin-right:8px}footer{margin:24px 0 8px}textarea{resize:vertical}\n</style>\n<main><div class=\"tag\">HERMES POCKET / SETUP</div><h1>Let's get connected</h1>\n<p>Save up to five home Wi-Fi networks. Pocket tests each new password before saving it.</p>\n<p id=\"session-status\" role=\"status\">Checking your setup session...</p>\n<button id=\"retry-status\" type=\"button\" class=\"secondary\">Check status</button>\n<section aria-labelledby=\"saved-heading\"><h2 id=\"saved-heading\">Saved Wi-Fi</h2>\n<p id=\"connection\" role=\"status\">Checking Pocket's Wi-Fi...</p>\n<p id=\"hermes-note\">Wi-Fi and Hermes availability are separate. If Pocket says Hermes is unreachable, check its bridge connection or pairing even when Wi-Fi is connected.</p>\n<p id=\"profile-count\">Checking saved networks...</p><ul id=\"profiles\" aria-label=\"Saved Wi-Fi networks\"></ul>\n<small id=\"storage-note\"></small></section>\n<section aria-labelledby=\"wifi-heading\"><h2 id=\"wifi-heading\">Add or update Wi-Fi</h2>\n<form id=\"wifi\" novalidate>\n<label for=\"networks\">Nearby networks - 2.4 GHz</label><select id=\"networks\"><option value=\"\">Choose a network...</option></select>\n<button id=\"scan\" type=\"button\" class=\"secondary\" disabled>Scan Wi-Fi</button>\n<p id=\"netstatus\" role=\"status\">Scan for nearby networks, or type a hidden network's name below. Open networks are unsupported.</p>\n<label for=\"ssid\">Network name</label><input id=\"ssid\" autocomplete=\"off\" autocapitalize=\"none\" spellcheck=\"false\" maxlength=\"32\" aria-describedby=\"ssid-help\" placeholder=\"Select above, or type a hidden network\">\n<small id=\"ssid-help\">Use your router's Wi-Fi name, including spaces and capitals. Maximum 32 UTF-8 bytes.</small>\n<label for=\"password\">Wi-Fi password</label><input id=\"password\" type=\"password\" autocomplete=\"new-password\" autocapitalize=\"none\" spellcheck=\"false\" maxlength=\"63\" placeholder=\"Your home Wi-Fi password\">\n<label><input id=\"showpass\" type=\"checkbox\">Show password</label>\n<button id=\"join\" type=\"submit\" disabled>Test and save Wi-Fi</button>\n</form><button id=\"cancel\" type=\"button\" class=\"secondary\" disabled>Cancel Wi-Fi test</button>\n<p id=\"result\" class=\"message\" role=\"alert\" aria-live=\"assertive\"></p>\n<small>Existing Wi-Fi profiles and Hermes pairing stay saved if a test fails or is cancelled. To change a saved password, enter that network's name again.</small></section>\n<details><summary>Hermes pairing - optional</summary>\n<p id=\"pairing-state\" role=\"status\">Your existing pairing is preserved by default.</p>\n<p>Blank fields keep stored values. Only fields you enter here are updated when you tap Save Hermes pairing.</p>\n<form id=\"pairing\" novalidate>\n<label for=\"windows\">Windows bridge HTTPS address</label><input id=\"windows\" autocomplete=\"off\" autocapitalize=\"none\" spellcheck=\"false\" placeholder=\"https://your-bridge.example\" maxlength=\"192\">\n<label for=\"linux\">Linux bridge HTTPS address</label><input id=\"linux\" autocomplete=\"off\" autocapitalize=\"none\" spellcheck=\"false\" placeholder=\"https://your-bridge.example\" maxlength=\"192\">\n<label for=\"token\">Pocket pairing token</label><input id=\"token\" type=\"password\" autocomplete=\"new-password\" autocapitalize=\"none\" spellcheck=\"false\" maxlength=\"128\">\n<label for=\"ca\">Bridge CA certificate - optional</label><textarea id=\"ca\" autocomplete=\"off\" autocapitalize=\"none\" spellcheck=\"false\" maxlength=\"2048\" rows=\"4\"></textarea>\n<small>Use only your dedicated Pocket pairing token. Saved pairing values are never shown on this page.</small>\n<button id=\"pair-save\" type=\"submit\" disabled>Save Hermes pairing</button>\n<p id=\"pair-result\" class=\"message\" role=\"alert\" aria-live=\"assertive\"></p></form></details>\n<footer><small>The owner opens this secure setup hotspot for five minutes. Keep your phone on Pocket's hotspot while using this page. If setup expires, hold OK on Pocket to reopen it. When finished, reconnect your phone to your normal Wi-Fi.</small></footer></main>\n<script>\n'use strict';\nconst $=id=>document.getElementById(id);\nconst byteLength=value=>new TextEncoder().encode(value).length;\nconst pairingFields=['windows','linux','token','ca'];\nlet snapshot=null,reachable=false,expired=false,closed=false,statusBusy=false,actionBusy=false,pairBusy=false;\nlet pollTimer=null,pending=null,scanPending=null,profileSignature='',networkSignature='',profileButtons=[],statusEpoch=0;\nconst controllers=new Set();\n\nfunction validateWifi(body){\n if(!body.ssid||byteLength(body.ssid)>32)return 'Enter a network name of 1-32 UTF-8 bytes.';\n if(byteLength(body.password)<8||byteLength(body.password)>63)return 'Wi-Fi password must be 8-63 UTF-8 bytes. Enter your home router password.';\n return '';\n}\nfunction validatePairing(body){\n for(const key of ['windows','linux'])if(body[key]&&(byteLength(body[key])>192||!/^https:\\/\\/[^\\s@?#]+$/.test(body[key])))return 'Use an HTTPS bridge address of at most 192 bytes, or leave that field blank to keep it.';\n if(body.token&&(body.token.length<32||body.token.length>128||!/^[\\x21-\\x7e]+$/.test(body.token)))return 'Pocket pairing token must be 32-128 visible characters, or leave it blank to keep it.';\n if(byteLength(body.ca)>2048||(body.ca&&(!body.ca.startsWith('-----BEGIN CERTIFICATE-----')||!body.ca.includes('-----END CERTIFICATE-----'))))return 'Enter a valid PEM certificate of at most 2048 bytes, or leave it blank to keep it.';\n return '';\n}\nfunction clearPairing(){for(const key of pairingFields)$(key).value=''}\nfunction stopPolling(){clearTimeout(pollTimer);pollTimer=null}\nfunction expireSetup(){\n expired=true;reachable=false;stopPolling();for(const controller of controllers)controller.abort();\n $('password').value='';clearPairing();pending=null;scanPending=null;\n $('session-status').textContent='Setup expired. Hold OK on Pocket to reopen setup, then reconnect to its hotspot.';\n $('result').textContent='';$('pair-result').textContent='';updateControls();\n}\nasync function request(path,body){\n const controller=new AbortController();controllers.add(controller);\n const timer=setTimeout(()=>controller.abort(),15000);\n const options={headers:{'X-Pocket-Setup':document.querySelector('meta[name=\"pocket-nonce\"]').content},cache:'no-store',signal:controller.signal};\n if(body!==undefined){options.method='POST';options.headers['Content-Type']='application/json';options.body=JSON.stringify(body)}\n try{const result=await fetch(path,options);if(result.status===403)expireSetup();return result}\n finally{clearTimeout(timer);controllers.delete(controller)}\n}\nfunction updateControls(){\n const blocked=closed||expired||!reachable||actionBusy||pairBusy;\n const running=!!pending||!!snapshot&&snapshot.join_result===1;\n const scanning=!!scanPending||!!snapshot&&snapshot.scan_state===1;\n const writable=!!snapshot&&snapshot.store_writable;\n $('join').disabled=blocked||running||scanning||!writable;\n $('scan').disabled=blocked||running||scanning;\n $('pair-save').disabled=blocked||running||scanning||!writable;\n $('cancel').disabled=blocked||!running||!!pending&&pending.kind==='cancel';\n $('retry-status').disabled=closed||expired||statusBusy;\n for(const buttons of profileButtons){\n  buttons.connect.disabled=blocked||running||scanning||buttons.connected;\n  buttons.forget.disabled=blocked||running||scanning||!writable;\n }\n}\nfunction renderProfiles(data){\n $('profile-count').textContent=data.profiles.length+' / '+data.capacity+' saved networks';\n $('storage-note').textContent=!data.store_writable?'Saved-settings storage is not writable. Saved networks can still connect; adding, forgetting, and pairing changes are unavailable.':\n  data.profiles.length>=data.capacity?'All '+data.capacity+' slots are full. Explicitly forget a network to add another. A saved network can still be retested with a new password. Nothing is automatically removed.':\n  'Pocket keeps existing profiles and Hermes pairing when you add another network. Nothing is automatically removed.';\n const signature=JSON.stringify(data.profiles);if(signature===profileSignature)return;profileSignature=signature;\n $('profiles').replaceChildren();profileButtons=[];\n if(!data.profiles.length){const empty=document.createElement('li');empty.textContent='No saved networks yet. Add one below.';$('profiles').appendChild(empty)}\n for(const profile of data.profiles){\n  const row=document.createElement('li'),name=document.createElement('strong'),note=document.createElement('small'),actions=document.createElement('div');\n  name.textContent=profile.ssid;note.textContent=profile.connected?'Connected now':'Saved on Pocket';actions.className='actions';\n  const connect=document.createElement('button'),forget=document.createElement('button');\n  connect.type=forget.type='button';connect.textContent=profile.connected?'Connected':'Connect';forget.textContent='Forget';\n  connect.className=forget.className='secondary';connect.setAttribute('aria-label','Connect to '+profile.ssid);forget.setAttribute('aria-label','Forget '+profile.ssid);\n  connect.addEventListener('click',()=>{if(!connect.disabled)return queueWifi('connect',{ssid:profile.ssid})});\n  forget.addEventListener('click',()=>{if(!forget.disabled&&window.confirm('Forget \"'+profile.ssid+'\" from Pocket? Its saved password will be removed. Hermes pairing will be kept.'))return queueWifi('forget',{ssid:profile.ssid})});\n  actions.appendChild(connect);actions.appendChild(forget);row.appendChild(name);row.appendChild(note);row.appendChild(actions);$('profiles').appendChild(row);\n  profileButtons.push({connect,forget,connected:profile.connected});\n }\n}\nfunction renderNetworks(data){\n if(scanPending&&scanPending.operation!==null&&data.operation<scanPending.operation)return;\n if(data.scan_state===1){$('netstatus').textContent='Scanning nearby Wi-Fi...';return}\n if(data.scan_state===3){scanPending=null;$('netstatus').textContent='Scan failed. Scan again, or type your network name below.';return}\n if(data.scan_state===0){if(scanPending&&scanPending.operation===null){scanPending=null;$('netstatus').textContent='Could not confirm the scan. Scan again, or type your network name below.'}return}\n if(data.scan_state!==2)return;\n scanPending=null;const signature=JSON.stringify(data.networks);if(signature===networkSignature)return;networkSignature=signature;\n const list=$('networks'),selected=list.value;list.replaceChildren();const first=document.createElement('option');first.value='';first.textContent='Choose a network...';list.appendChild(first);\n for(const network of data.networks){const option=document.createElement('option');option.value=network.ssid;\n  option.textContent=network.ssid+' - '+(network.rssi>-60?'Strong':network.rssi>-75?'Fair':'Weak')+(network.open?' - Open network unsupported':'');\n  option.disabled=network.open;list.appendChild(option)}\n list.value=data.networks.some(network=>network.ssid===selected&&!network.open)?selected:'';\n $('netstatus').textContent=data.networks.length?'Select your network, then enter its password. You can also type a hidden network below.':'No networks found. Scan again, or type your network name below.';\n}\nfunction finishWifi(data){\n if(!pending&&data.join_result===1)pending={kind:'observe',operation:data.operation};\n if(!pending)return;\n if(pending.operation===null){\n  if(data.join_result===1){pending.observed=data.operation;return}\n  if(data.operation>pending.baseline||pending.observed===data.operation){pending=null;$('result').textContent='Could not confirm the requested action. Check the saved list and Wi-Fi status before trying again. No settings were automatically resubmitted.'}\n  return;\n }\n if(data.operation<pending.operation)return;\n if(data.operation!==pending.operation){pending=null;$('result').textContent='Could not confirm completion because another Wi-Fi operation started. Check the saved list and Wi-Fi status before trying again.';return}\n if(data.join_result===0)return;\n if(data.join_result===1){$('result').textContent=pending.kind==='join'?'Testing Wi-Fi before saving. Existing profiles and Hermes pairing stay saved.':\n  pending.kind==='connect'?'Connecting to saved Wi-Fi...':pending.kind==='cancel'?'Cancelling Wi-Fi test. Waiting for confirmation...':\n  pending.kind==='forget'?'Removing saved network. Waiting for confirmation...':'A Wi-Fi operation is running on Pocket. Wait for confirmation or cancel.';return}\n const kind=pending.kind;pending=null;\n const kept=' Existing saved Wi-Fi profiles and Hermes pairing were kept.';\n const failure=['The Wi-Fi test failed.','The Wi-Fi test failed.','The Wi-Fi test failed.','The Wi-Fi test failed.',\n  'Network not found. Check the name, 2.4 GHz coverage, and signal.','Wi-Fi password was rejected. Check the router password.',\n  'Wi-Fi connected without an IP address. Check your router and try again.','Wi-Fi connection failed. Check the router and try again.'];\n if(data.join_result===2)$('result').textContent=kind==='connect'?'Connected to saved Wi-Fi. Hermes pairing was kept.':\n  kind==='forget'||kind==='cancel'?'Could not confirm the requested action. Check the saved list and Wi-Fi status.':'Wi-Fi tested and saved. Hermes pairing was kept. You can add another network or finish setup.';\n else if(data.join_result===3)$('result').textContent=failure[data.connection]+kept+' Enter the password again to retry.';\n else if(data.join_result===4)$('result').textContent='Wi-Fi test cancelled.'+kept+' Check the connection status above while Pocket restores its previous Wi-Fi.';\n else if(data.join_result===5)$('result').textContent='The saved Wi-Fi list is full. Explicitly forget a network before adding another.'+kept;\n else if(data.join_result===6)$('result').textContent='Could not confirm saving the requested change. Check saved networks before retrying. Hermes pairing was kept.';\n else if(data.join_result===7)$('result').textContent='Saved network forgotten. Hermes pairing was kept.';\n}\nfunction renderStatus(data){\n snapshot=data;reachable=true;\n if(data.expires_seconds<=0){expireSetup();return}\n $('session-status').textContent='Setup hotspot closes in about '+Math.ceil(data.expires_seconds/60)+' minute(s). Keep your phone on Pocket\\'s hotspot.';\n const connection=['Wi-Fi is disconnected.','Connecting to Wi-Fi...','Getting an IP address...',\n  'Wi-Fi connected.','Wi-Fi network not found.','Wi-Fi password was rejected.','Wi-Fi has no IP address.','Wi-Fi connection failed.'];\n $('connection').textContent=data.connected?'Wi-Fi connected to '+data.ssid+'.':connection[data.connection]||'Checking Wi-Fi status...';\n $('pairing-state').textContent=data.pairing_saved?'Saved Hermes pairing is preserved. Blank fields keep its stored values.':'No Hermes pairing is saved yet. You can set up Wi-Fi first.';\n renderProfiles(data);renderNetworks(data);finishWifi(data);\n}\nasync function pollStatus(){\n if(expired||closed||statusBusy)return;stopPolling();statusBusy=true;updateControls();\n // Only a GET started after the queue request settles can confirm its action.\n const epoch=statusEpoch;\n try{const result=await request('/wifi/status');if(expired||closed||epoch!==statusEpoch||actionBusy)return;if(result.status!==200)throw new Error('status unavailable');\n  const data=await result.json();if(closed||expired||epoch!==statusEpoch||actionBusy)return;\n  if(!data||!Array.isArray(data.profiles)||!Array.isArray(data.networks)||data.capacity!==5||!Number.isInteger(data.operation))throw new Error('invalid status');\n  renderStatus(data);\n }catch(error){if(!expired&&!closed&&epoch===statusEpoch&&!actionBusy){reachable=false;$('session-status').textContent='Cannot reach Pocket. Reconnect to its setup hotspot, then check status. No settings will be automatically resubmitted.';\n  if(pending)$('result').textContent='Could not confirm completion of this Wi-Fi action. Pocket may still be testing or saving. Reconnect to its hotspot and check status. No settings will be automatically resubmitted.'}}\n finally{statusBusy=false;updateControls();if(!expired&&!closed)pollTimer=setTimeout(()=>pollStatus(),1500)}\n}\nasync function queueWifi(kind,body){\n if(expired||closed||!reachable||actionBusy||pairBusy)return;\n const running=!!pending||snapshot.join_result===1,scanning=!!scanPending||snapshot.scan_state===1;\n if(kind==='cancel'?!running||pending&&pending.kind==='cancel':running||scanning)return;\n if((kind==='join'||kind==='forget')&&!snapshot.store_writable)return;\n const baseline=snapshot.operation;actionBusy=true;statusEpoch++;updateControls();\n $('result').textContent=kind==='join'?'Sending Wi-Fi test request...':kind==='connect'?'Connecting to saved Wi-Fi...':kind==='forget'?'Requesting network removal...':'Requesting cancellation...';\n try{const result=await request('/wifi/'+kind,body);if(expired||closed)return;\n  if(!result.ok){$('result').textContent=(await result.text())+' Check the fields or Wi-Fi status before trying again.';return}\n  if(result.status!==202)throw new Error('acceptance uncertain');\n  const data=await result.json();if(data.accepted!==true||!Number.isInteger(data.operation))throw new Error('acceptance uncertain');\n  pending={kind,operation:data.operation};if(kind==='join')$('password').value='';\n  $('result').textContent=kind==='join'?'Testing Wi-Fi before saving. Existing profiles and Hermes pairing stay saved.':\n   kind==='connect'?'Connecting to saved Wi-Fi...':kind==='forget'?'Removing saved network. Waiting for confirmation...':'Cancelling Wi-Fi test. Waiting for confirmation...';\n }catch(error){if(!expired&&!closed){if(kind==='join')$('password').value='';pending={kind,operation:null,baseline};\n  $('result').textContent='Could not confirm whether Pocket accepted this action. Check status or cancel before trying again. No settings will be automatically resubmitted.'}}\n finally{actionBusy=false;statusEpoch++;updateControls()}\n}\n$('showpass').addEventListener('change',()=>{$('password').type=$('showpass').checked?'text':'password'});\n$('networks').addEventListener('change',()=>{\n const selected=$('networks').value;if(selected&&snapshot&&snapshot.networks.some(network=>network.ssid===selected&&!network.open)){$('ssid').value=selected;$('password').focus()}\n});\n$('scan').addEventListener('click',async()=>{\n if($('scan').disabled)return;actionBusy=true;updateControls();$('netstatus').textContent='Scanning nearby Wi-Fi...';\n try{const result=await request('/networks');if(expired||closed)return;\n  if(!result.ok){$('netstatus').textContent=(await result.text())+' You can type your network name below.';return}\n  if(result.status!==202)throw new Error('scan uncertain');const data=await result.json();\n  if(data.accepted!==true||!Number.isInteger(data.operation))throw new Error('scan uncertain');scanPending={operation:data.operation};networkSignature='';\n }catch(error){if(!expired&&!closed){scanPending={operation:null};$('netstatus').textContent='Could not confirm the scan. Check status, or type your network name below.'}}\n finally{actionBusy=false;updateControls()}\n});\n$('wifi').addEventListener('submit',event=>{\n event.preventDefault();if($('join').disabled)return;const body={ssid:$('ssid').value,password:$('password').value};const error=validateWifi(body);\n if(error){$('result').textContent=error;return}\n if(snapshot.profiles.length>=snapshot.capacity&&!snapshot.profiles.some(profile=>profile.ssid===body.ssid)){$('result').textContent='The saved Wi-Fi list is full. Explicitly forget a network before adding another. Nothing was removed.';return}\n return queueWifi('join',body);\n});\n$('cancel').addEventListener('click',()=>{if(!$('cancel').disabled)return queueWifi('cancel',{})});\n$('retry-status').addEventListener('click',()=>{if(!$('retry-status').disabled)return pollStatus()});\n$('pairing').addEventListener('submit',async event=>{\n event.preventDefault();if($('pair-save').disabled)return;const body={};for(const key of pairingFields)body[key]=$(key).value;\n const error=validatePairing(body);if(error){$('pair-result').textContent=error;return}\n if(pairingFields.every(key=>!body[key])){$('pair-result').textContent='Existing Hermes pairing kept unchanged. Enter a field only when you want to update it.';return}\n pairBusy=true;updateControls();$('pair-result').textContent='Saving Hermes pairing...';\n try{const result=await request('/pairing',body);if(expired||closed)return;\n  if(!result.ok){$('pair-result').textContent=(await result.text())+' Check the optional fields before trying again.';return}\n  if(result.status!==200)throw new Error('pairing uncertain');clearPairing();$('pair-result').textContent='Hermes pairing saved. Fields left blank kept their stored values.';\n }catch(error){if(!expired&&!closed){clearPairing();$('pair-result').textContent='Could not confirm saving Hermes pairing. Check Pocket before entering these values again. No pairing values will be automatically resubmitted.'}}\n finally{pairBusy=false;updateControls()}\n});\nwindow.addEventListener('pagehide',()=>{closed=true;stopPolling();for(const controller of controllers)controller.abort();$('password').value='';clearPairing();updateControls()});\nwindow.addEventListener('pageshow',()=>{if(closed&&!expired){closed=false;reachable=false;return pollStatus()}});\nupdateControls();pollStatus();\n</script></html>\n";
++static const char setup_html_after[] = "\"><title>Connect Hermes Pocket</title>\n<style>body{font:16px system-ui,sans-serif;max-width:480px;margin:auto;padding:24px 18px;background:#101c25;color:#f4f1e9}h1{font-size:28px;margin:6px 0}p,small{line-height:1.5;color:#b9cbd6}section,details{background:#1a2c39;border:1px solid #365061;border-radius:16px;padding:18px;margin:18px 0}label{display:block;margin:16px 0 6px}input,textarea,select,button{box-sizing:border-box;width:100%;font:inherit;border-radius:10px;padding:13px;min-height:48px}input,textarea,select{background:#0c1922;color:#fff;border:1px solid #678091}button{background:#9ce4ce;color:#102820;border:0;font-weight:700;margin-top:12px;cursor:pointer}button.secondary{background:#2a4354;color:#fff}button:disabled{opacity:.6;cursor:wait}#result{white-space:pre-wrap;color:#ffd1a3;min-height:48px}#netstatus{font-size:14px}summary{cursor:pointer;padding:6px}small{display:block;margin-top:10px}.tag{color:#9ce4ce;font-size:13px;letter-spacing:2px}input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle}#saved{color:#9ce4ce}</style>\n<div class=\"tag\">HERMES POCKET \u00b7 SETUP</div><h1>Let's get connected</h1><p>Choose your home Wi-Fi. Your phone stays on the Pocket hotspot until settings are saved.</p>\n<form id=\"setup\" novalidate><section><h2>1. Home Wi-Fi</h2><label for=\"networks\">Nearby networks \u00b7 2.4 GHz</label><select id=\"networks\"><option value=\"\">Choose a network\u2026</option></select><button id=\"scan\" type=\"button\" class=\"secondary\">Scan Wi-Fi</button><p id=\"netstatus\" role=\"status\">Tap Scan Wi-Fi to find nearby networks.</p><label for=\"ssid\">Network name</label><input id=\"ssid\" autocomplete=\"off\" maxlength=\"31\" placeholder=\"Select above, or type a hidden network\"><small>This is your router's Wi-Fi name, not the Pocket hotspot.</small><label for=\"password\">Wi-Fi password</label><input id=\"password\" type=\"password\" autocomplete=\"off\" maxlength=\"63\" placeholder=\"Your home Wi-Fi password\"><label><input id=\"showpass\" type=\"checkbox\"> Show password</label></section>\n<details><summary>2. Hermes connection \u00b7 optional for now</summary><p>Leave these blank to set up Wi-Fi first. Only use your dedicated Pocket pairing token.</p><label for=\"windows\">Windows bridge HTTPS address</label><input id=\"windows\" placeholder=\"https://your-bridge.example\" maxlength=\"192\"><label for=\"linux\">Linux bridge HTTPS address</label><input id=\"linux\" placeholder=\"https://your-bridge.example\" maxlength=\"192\"><label for=\"token\">Pocket pairing token</label><input id=\"token\" type=\"password\" maxlength=\"128\" autocomplete=\"off\"><label for=\"ca\">Bridge CA certificate \u00b7 optional</label><textarea id=\"ca\" maxlength=\"2048\" rows=\"4\"></textarea><small>Blank fields remove existing bridge pairing. Settings are stored in unencrypted device flash. Never enter provider API keys here.</small></details>\n<p id=\"result\" role=\"alert\" aria-live=\"assertive\"></p><button id=\"save\" type=\"submit\">Save Wi-Fi and restart</button><p id=\"saved\" role=\"status\"></p><small>The hotspot expires after 5 minutes. If it expires, hold OK on Pocket to reopen setup. Saving restarts Pocket; then reconnect your phone to your normal Wi-Fi.</small></form>\n<script>\n'use strict';\nconst $=id=>document.getElementById(id);\nconst form=$('setup'),saveButton=$('save'),scanButton=$('scan'),status=$('result');\nconst byteLength=s=>new TextEncoder().encode(s).length;\nfunction validateSettings(b){\n if(!b.ssid||byteLength(b.ssid)>31)return 'Choose your home Wi-Fi, or enter a network name of at most 31 bytes.';\n if(byteLength(b.password)<8||byteLength(b.password)>63)return 'Wi-Fi password must be 8\u201363 bytes. Enter your home router password.';\n for(const key of ['windows','linux'])if(b[key]&&(byteLength(b[key])>192||!/^https:\\/\\/[^\\s@?#]+$/.test(b[key])))return 'Use an HTTPS bridge address, or leave the optional Hermes fields blank.';\n if(b.token&&(b.token.length<32||b.token.length>128||!/^[\\x21-\\x7e]+$/.test(b.token)))return 'Pocket pairing token must be 32\u2013128 visible characters, or leave it blank.';\n if(byteLength(b.ca)>2048||(b.ca&&(!b.ca.startsWith('-----BEGIN CERTIFICATE-----')||!b.ca.includes('-----END CERTIFICATE-----'))))return 'Enter a valid PEM certificate, or leave the optional certificate blank.';\n return '';\n}\nasync function request(path,options){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),15000);try{return await fetch(path,{...options,signal:controller.signal,cache:'no-store'})}finally{clearTimeout(timer)}}\nfunction nonce(){return document.querySelector('meta[name=\"pocket-nonce\"]').content}\n$('showpass').addEventListener('change',()=>{$('password').type=$('showpass').checked?'text':'password'});\n$('networks').addEventListener('change',()=>{if($('networks').value){$('ssid').value=$('networks').value;$('password').focus()}});\nscanButton.addEventListener('click',async()=>{scanButton.disabled=true;$('netstatus').textContent='Scanning nearby Wi-Fi\u2026';try{const r=await request('/networks',{headers:{'X-Pocket-Setup':nonce()}});if(!r.ok)throw new Error(await r.text());const data=await r.json();const list=$('networks');list.replaceChildren();const first=document.createElement('option');first.value='';first.textContent='Choose a network\u2026';list.appendChild(first);for(const n of data.networks){const o=document.createElement('option');o.value=n.ssid;o.textContent=n.ssid+' \u00b7 '+(n.rssi>-60?'Strong':n.rssi>-75?'Fair':'Weak')+(n.open?' \u00b7 Open network unsupported':'');o.disabled=n.open;list.appendChild(o)}$('netstatus').textContent=data.networks.length?'Select your network, then enter its password.':'No networks found. Scan again, or type the name below.'}catch(e){$('netstatus').textContent='Scan unavailable. You can type your network name below. '+e.message}finally{scanButton.disabled=false}});\nform.addEventListener('submit',async e=>{e.preventDefault();if(saveButton.disabled)return;const b={};for(const key of ['ssid','password','windows','linux','token','ca'])b[key]=$(key).value;if(validateSettings(b)){status.textContent=validateSettings(b);return}status.textContent='Saving settings\u2026';saveButton.disabled=true;scanButton.disabled=true;try{const r=await request('/save',{method:'POST',headers:{'Content-Type':'application/json','X-Pocket-Setup':nonce()},body:JSON.stringify(b)});const text=await r.text();if(!r.ok){status.textContent=text+'\\nCheck the fields and try again. If setup expired, hold OK on Pocket and reconnect.';saveButton.disabled=false;scanButton.disabled=false;return}status.textContent='';$('saved').textContent='Saved! Pocket is restarting. Reconnect your phone to your normal Wi-Fi and check Pocket\u2019s screen.';saveButton.textContent='Saved \u00b7 restarting';$('password').value='';$('token').value=''}catch(e){status.textContent='Could not confirm saving. Check Pocket\u2019s screen. If it did not restart, reconnect to its setup hotspot and try again.';saveButton.disabled=false;scanButton.disabled=false}});\n</script></html>\n";
+diff --git b/firmware/main/pocket_ui.c a/firmware/main/pocket_ui.c
+index 9ac9a5a..fecdcef 100644
+--- b/firmware/main/pocket_ui.c
++++ a/firmware/main/pocket_ui.c
+@@ -1,7 +1,6 @@
+ /* Hermes Pocket MIT. Screen layout and animated cartoon cat in pure LVGL. */
+ #include "pocket_ui.h"
+ #include "pocket_utf8.h"
+-#include "pocket_clock.h"
+ #include "lvgl.h"
+ #include "lv_font_pocket_cjk_16.h"
+ #include <stdio.h>
+@@ -328,18 +327,6 @@ static bool has_local_usage(const pocket_ui_view *view) {
+  if(view->usage)for(unsigned i=0;i<POCKET_USAGE_PROVIDER_COUNT;i++)if(view->usage->providers[i].local.present)return true;
+  return false;
+ }
+-static void home_footer(const pocket_ui_view *view){
+- static bool cached,last_ready;
+- static int64_t last_minute;
+- static char clock_text[32];
+- const int64_t minute=view->clock_ready?view->now/60:-1;
+- if(!cached || minute!=last_minute || view->clock_ready!=last_ready){
+-  (void)pocket_clock_format(view->now,view->clock_ready,clock_text,sizeof clock_text);
+-  last_minute=minute;last_ready=view->clock_ready;cached=true;
+- }
+- char text[80];snprintf(text,sizeof text,"%s\n%s",view->target_save_failed?"Target not saved":"OK: agent  Hold: setup",clock_text);
+- if(strcmp(lv_label_get_text(footer),text))lv_label_set_text(footer,text);
+-}
+ static void show_usage_rows(const pocket_ui_view *view,bool dashboard) {
+  static const char *providers[]={"Codex","Claude","Ollama"};
+  const unsigned page=view->usage_window%POCKET_USAGE_DASHBOARD_PAGES;
+@@ -429,14 +416,14 @@ void pocket_ui_render(const pocket_ui_view *v) {
+  lv_label_set_long_mode(body,v->page==POCKET_TASKS&&!v->setup_active?LV_LABEL_LONG_DOT:LV_LABEL_LONG_WRAP);
+  show(rows,false);show(bubble,false);show(body,false);show(note,false);show(off_option,false);
+  const bool usage_dashboard=!v->setup_active&&v->page==POCKET_USAGE&&has_local_usage(v);
+- lv_obj_set_style_text_font(footer,usage_dashboard||(!v->setup_active&&v->page==POCKET_STATUS)?&lv_font_montserrat_14:&text_font,0);
++ lv_obj_set_style_text_font(footer,usage_dashboard?&lv_font_montserrat_14:&text_font,0);
+  lv_obj_set_style_text_letter_space(badge,usage_dashboard?0:1,0);
+ 
+  if(v->setup_active){
+   lv_label_set_text(title,"PHONE SETUP");set_badge("SETUP / 5 MIN",AMBER,60);
+   show(body,true);lv_obj_set_pos(body,20,92);lv_obj_set_height(body,170);
+   lv_label_set_text_fmt(body,"1. Join this Wi-Fi\n%s\nPassword: %s\n\n2. Open on your phone\nhttp://192.168.4.1",v->ssid,v->password);
+-  lv_label_set_text(footer,v->setup_message&&v->setup_message[0]?v->setup_message:"Finish setup on your phone");return;
++  lv_label_set_text(footer,"Finish setup on your phone");return;
+  }
+  if(v->reader_active){
+   lv_label_set_text(title,"FULL REPLY");set_badge("READ / STORED TEXT",SKY,60);
+@@ -500,7 +487,7 @@ void pocket_ui_render(const pocket_ui_view *v) {
+   set_row(0,"Wi-Fi",v->wifi_connected?"Connected":"Offline",v->wifi_connected?MINT:CORAL);
+   set_row(1,"Hermes",v->online?"Available":"Offline",v->online?MINT:CORAL);
+   set_row(2,"Voice",v->speech_ready?"Ready":"Needs setup",v->speech_ready?MINT:AMBER);show_rows(182);
+-  home_footer(v);return;
++  lv_label_set_text(footer,v->target_save_failed?"Target not saved\nUP/DOWN: pages":"OK: agent  Hold: setup\nUP/DOWN: pages");return;
+  }
+  if(v->page==POCKET_DIAGNOSTICS){
+   char status[40],detail[240];
+diff --git b/firmware/main/pocket_ui.h a/firmware/main/pocket_ui.h
+index 857215d..5daf2d4 100644
+--- b/firmware/main/pocket_ui.h
++++ a/firmware/main/pocket_ui.h
+@@ -13,7 +13,7 @@ typedef struct {
+  int64_t now;
+  int64_t uptime_ms;
+  const pocket_diagnostics *diagnostics;
+- bool target_save_failed,clock_ready;
++ bool target_save_failed;
+  pocket_tool tool;
+  unsigned volume,alert_threshold,task_count,task_selected;
+  bool audio_edit,usd_floor_enabled,alert_pending,task_approval,task_unknown,task_has_result,task_truncated;
+@@ -27,7 +27,7 @@ typedef struct {
+  int battery_percent; /* Negative when the gauge has no trustworthy reading. */
+  bool setup_active, wifi_connected, online, speech_ready;
+  bool voice_here, recording, playing, busy; /* voice_here: voice state belongs to target. */
+- const char *ssid, *password, *message, *text, *reply, *setup_message;
++ const char *ssid, *password, *message, *text, *reply;
+ } pocket_ui_view;
+ 
+ /* All calls must hold the LVGL lock. */
+diff --git b/firmware/main/pocket_voice.c a/firmware/main/pocket_voice.c
+index 0c94d86..b067810 100644
+--- b/firmware/main/pocket_voice.c
++++ a/firmware/main/pocket_voice.c
+@@ -13,7 +13,6 @@
+ #include "esp_random.h"
+ #include "esp_timer.h"
+ #include "esp_sntp.h"
+-#include "pocket_clock.h"
+ #include "esp_log.h"
+ #include "esp_heap_caps.h"
+ #include "esp_wifi.h"
+@@ -133,14 +132,11 @@ void pocket_voice_begin_model(unsigned target,unsigned choice){
+   snprintf(state.message,sizeof(state.message),"Selected model unavailable; open Models");
+   portEXIT_CRITICAL(&mux);return;
+  }
+- if(!pocket_setup_voice_acquire()){
+-  held=false;snprintf(state.message,sizeof state.message,"Finish Wi-Fi setup before speaking");portEXIT_CRITICAL(&mux);return;
+- }
+  memcpy(pending_begin_body,begin_body,sizeof(pending_begin_body));
+  held=true;cancelled=false;phase=VOICE_PRE_FINISH;pending_model_choice=choice;state.busy=true;state.target=target;state.text[0]=0;state.reply[0]=0;
+  portEXIT_CRITICAL(&mux);
+  pocket_reader_close(); /* Invalidates an idle GET before the voice worker can use its buffers. */
+- if(xQueueSend(commands,&target,0)!=pdTRUE){portENTER_CRITICAL(&mux);state.busy=false;held=false;portEXIT_CRITICAL(&mux);pocket_setup_voice_release();}
++ if(xQueueSend(commands,&target,0)!=pdTRUE){portENTER_CRITICAL(&mux);state.busy=false;held=false;portEXIT_CRITICAL(&mux);}
+ }
+ void pocket_voice_begin(unsigned target){pocket_voice_begin_model(target,POCKET_MODEL_DEFAULT);}
+ static void record(void *unused){
+@@ -317,20 +313,19 @@ static void network(void *unused){
+  (void)unused;
+  pocket_link_config *link=malloc(sizeof(*link));char *response=malloc(8192);
+  capture_frame *frame=NULL;char *body=NULL;audio_frame *playback=NULL;
+- if(!link || !response){audio_unavailable=true;message("Not enough memory for connection");free(link);free(response);pocket_setup_voice_release();vTaskDelete(NULL);return;}
++ if(!link || !response){audio_unavailable=true;message("Not enough memory for connection");free(link);free(response);vTaskDelete(NULL);return;}
+  unsigned target,poll_target=0,last_poll_ms=0;
+  for(;;){
+   portENTER_CRITICAL(&mux);bool active_voice=state.busy;portEXIT_CRITICAL(&mux);
+   const unsigned poll_ms=active_voice?POCKET_IDLE_POLL_MS:pocket_actions_poll_ms();
+   if(poll_ms!=last_poll_ms){ESP_LOGI("pocket_poll","delay_ms=%u",poll_ms);last_poll_ms=poll_ms;}
+   if(xQueueReceive(commands,&target,pdMS_TO_TICKS(poll_ms))!=pdTRUE){
+-   if(!pocket_setup_poll_acquire())continue;
+    /* Retry only restoration of our own prior mode, once per idle cycle. */
+    capture_radio_retry();
+    poll_target=pocket_actions_poll_target(poll_target);
+    pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false,reachable=false;int http_status=0;
+    pocket_diagnostics observed={.checked=true,.wifi=current.wifi_connected,.utc_ready=time(NULL)>=1704067200};
+-   if(observed.wifi && observed.utc_ready && !current.active)observed.configured=pocket_setup_link(poll_target,link);
++   if(observed.wifi && observed.utc_ready)observed.configured=pocket_setup_link(poll_target,link);
+    if(observed.configured){
+     observed.attempted=true;
+     observed.custom_ca=link->ca[0]!=0;
+@@ -358,17 +353,16 @@ static void network(void *unused){
+    if(changed)ESP_LOGI("pocket_status","target=%u http=%d backend_available=%u stt=%u",poll_target,http_status,(unsigned)online,(unsigned)ready);
+    /* Reuse this worker/client/buffer after deleting status JSON; queued voice
+       takes priority. No Usage requests run during capture, waiting or playback. */
+-   if(reachable && !voice_pending && pocket_setup_poll_continue()){
++   if(reachable && !voice_pending){
+     pocket_usage_poll(poll_target,link,response,8192);
+     /* A held talk gesture may arrive during the Usage GET. Give its queued
+        command priority before starting another read-only request. */
+     portENTER_CRITICAL(&mux);voice_pending=state.busy;portEXIT_CRITICAL(&mux);
+-    if(!voice_pending && pocket_setup_poll_continue())pocket_actions_idle(poll_target,link,response,8192);
++    if(!voice_pending)pocket_actions_idle(poll_target,link,response,8192);
+    }else if(!reachable){pocket_usage_disconnected(poll_target);pocket_actions_disconnected(poll_target);}
+    /* Idle polling outlives the bridge's keep-alive budget. Release this
+       connection before waiting; active audio/task requests keep their reuse. */
+    pocket_http_close();
+-   pocket_setup_poll_release();
+    memset(link,0,sizeof(*link));poll_target=1-poll_target;continue;
+   }bool started=false,pressed=false,restore_radio=false;wifi_ps_type_t saved_ps=WIFI_PS_NONE;unsigned sequence=0;char id[33],path[193],task[65]={0},begin_body[96];
+   portENTER_CRITICAL(&mux);unsigned choice=pending_model_choice;memcpy(begin_body,pending_begin_body,sizeof(begin_body));portEXIT_CRITICAL(&mux);
+@@ -460,24 +454,18 @@ static void network(void *unused){
+   }
+   bool fault=!release_capture(&frame,&body);
+   if(!fault)audio_sleep(target); /* Includes cancellation, failures and playback. */
++  portENTER_CRITICAL(&mux);state.busy=fault;state.playing=false;portEXIT_CRITICAL(&mux);
+   if(playback){memset(playback,0,sizeof(*playback));free(playback);playback=NULL;}
+   memset(link,0,sizeof(*link));
+   if(fault)message("Audio stalled; restart device");
+   else {portENTER_CRITICAL(&mux);bool stopped=cancelled && !capture_failed;portEXIT_CRITICAL(&mux);if(stopped)cancellation_message();}
+   pocket_http_close();
+-  if(!fault)pocket_setup_voice_release();
+-  portENTER_CRITICAL(&mux);state.busy=fault;state.playing=false;portEXIT_CRITICAL(&mux);
+  }
+ }
+-static void clock_synchronized(struct timeval *synchronized){
+- if(!synchronized)return;
+- const bool was_ready=pocket_clock_ready();pocket_clock_note_sync((int64_t)synchronized->tv_sec);
+- if(!was_ready && pocket_clock_ready())ESP_LOGI("pocket_clock","ready=1 offset_minutes=480");
+-}
+ esp_err_t pocket_voice_init(void){
+  commands=xQueueCreate(1,sizeof(unsigned));
+  if(!commands)return ESP_ERR_NO_MEM;
+- esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);esp_sntp_setservername(0,"pool.ntp.org");esp_sntp_set_time_sync_notification_cb(clock_synchronized);esp_sntp_init();
++ esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);esp_sntp_setservername(0,"pool.ntp.org");esp_sntp_init();
+  if(xTaskCreate(network,"pocket_voice",12288,NULL,4,NULL)!=pdPASS){vQueueDelete(commands);commands=NULL;return ESP_ERR_NO_MEM;}
+  message("Hold OK to talk");return ESP_OK;
+ }
+diff --git b/firmware/main/pocket_wifi_store.c a/firmware/main/pocket_wifi_store.c
+deleted file mode 100644
+index 6832b0e..0000000
+--- b/firmware/main/pocket_wifi_store.c
++++ /dev/null
+@@ -1,66 +0,0 @@
+-/* MIT. Alternate complete records, retaining the previous valid generation. */
+-#include "pocket_wifi_store.h"
+-#include "nvs.h"
+-#include <string.h>
+-
+-static int read_slot(nvs_handle_t handle,const char *key,pocket_wifi_book *out){
+- size_t size=0;esp_err_t error=nvs_get_blob(handle,key,NULL,&size);
+- if(error==ESP_ERR_NVS_NOT_FOUND)return 0;
+- if(error!=ESP_OK)return -1;
+- if(size!=sizeof *out)return 1;
+- error=nvs_get_blob(handle,key,out,&size);
+- if(error!=ESP_OK)return -1;
+- return size==sizeof *out && out->sequence && pocket_wifi_book_valid(out)?2:1;
+-}
+-pocket_wifi_store_result pocket_wifi_store_load(pocket_wifi_store *store,pocket_wifi_book *out){
+- if(!store || !out)return POCKET_WIFI_STORE_ERROR;
+- *store=(pocket_wifi_store){.slot=-1,.writable=false};pocket_wifi_book_init(out);
+- nvs_handle_t handle;esp_err_t error=nvs_open("pocket_wifi",NVS_READONLY,&handle);
+- if(error==ESP_ERR_NVS_NOT_FOUND){store->writable=true;return POCKET_WIFI_STORE_ABSENT;}
+- if(error!=ESP_OK)return POCKET_WIFI_STORE_ERROR;
+- pocket_wifi_book records[2]={{0}};
+- int a=read_slot(handle,"a",&records[0]),b=read_slot(handle,"b",&records[1]);nvs_close(handle);
+- pocket_wifi_store_result result=POCKET_WIFI_STORE_ERROR;
+- if(a==2 || b==2){
+-  if(a==2 && b==2 && records[0].sequence==records[1].sequence && memcmp(&records[0],&records[1],sizeof records[0]))result=POCKET_WIFI_STORE_CORRUPT;
+-  else {
+-   store->slot=a==2 && (b!=2 || (int32_t)(records[0].sequence-records[1].sequence)>=0)?0:1;
+-   *out=records[store->slot];store->writable=a>=0 && b>=0;result=POCKET_WIFI_STORE_OK;
+-  }
+- }else if(a>=0 && b>=0){
+-  result=(a || b)?POCKET_WIFI_STORE_CORRUPT:POCKET_WIFI_STORE_ABSENT;
+-  store->writable=result==POCKET_WIFI_STORE_ABSENT;
+- }
+- memset(records,0,sizeof records);return result;
+-}
+-static esp_err_t write_record(int slot,const pocket_wifi_book *book){
+- const char *key=slot?"b":"a";
+- nvs_handle_t handle;esp_err_t error=nvs_open("pocket_wifi",NVS_READWRITE,&handle);
+- if(error!=ESP_OK)return error;
+- error=nvs_set_blob(handle,key,book,sizeof *book);
+- if(error==ESP_OK)error=nvs_commit(handle);
+- nvs_close(handle);
+- if(error!=ESP_OK)return error;
+- error=nvs_open("pocket_wifi",NVS_READONLY,&handle);
+- if(error!=ESP_OK)return error;
+- pocket_wifi_book verified={0};int valid=read_slot(handle,key,&verified);nvs_close(handle);
+- bool same=valid==2 && !memcmp(book,&verified,sizeof verified);memset(&verified,0,sizeof verified);
+- if(!same)return ESP_FAIL;
+- return ESP_OK;
+-}
+-esp_err_t pocket_wifi_store_save(pocket_wifi_store *store,const pocket_wifi_book *book){
+- if(!store || !store->writable || !book || !book->sequence || !pocket_wifi_book_valid(book))return ESP_ERR_INVALID_STATE;
+- bool retire=store->slot<0 || book->count==0;
+- if(store->slot>=0){
+-  nvs_handle_t handle;esp_err_t error=nvs_open("pocket_wifi",NVS_READONLY,&handle);if(error!=ESP_OK)return error;
+-  pocket_wifi_book previous={0};int valid=read_slot(handle,store->slot?"b":"a",&previous);nvs_close(handle);
+-  if(valid==2)retire=retire || book->count<previous.count;
+-  memset(&previous,0,sizeof previous);if(valid!=2)return ESP_ERR_INVALID_STATE;
+- }
+- const int slot=store->slot==0?1:0;esp_err_t error=write_record(slot,book);
+- if(error!=ESP_OK)return error;
+- /* A confirmed forget must not be undone by recovery from the older copy.
+-    First-time import also gets two complete copies. No automatic deletion. */
+- if(retire){error=write_record(1-slot,book);if(error!=ESP_OK){store->writable=false;return error;}}
+- store->slot=slot;return ESP_OK;
+-}
+diff --git b/firmware/main/pocket_wifi_store.h a/firmware/main/pocket_wifi_store.h
+deleted file mode 100644
+index 3c39b67..0000000
+--- b/firmware/main/pocket_wifi_store.h
++++ /dev/null
+@@ -1,8 +0,0 @@
+-/* MIT. Wi-Fi records never share the legacy pairing namespace. */
+-#pragma once
+-#include "pocket_wifi.h"
+-#include "esp_err.h"
+-typedef enum { POCKET_WIFI_STORE_ABSENT,POCKET_WIFI_STORE_OK,POCKET_WIFI_STORE_CORRUPT,POCKET_WIFI_STORE_ERROR } pocket_wifi_store_result;
+-typedef struct { int slot;bool writable; } pocket_wifi_store;
+-pocket_wifi_store_result pocket_wifi_store_load(pocket_wifi_store *,pocket_wifi_book *);
+-esp_err_t pocket_wifi_store_save(pocket_wifi_store *,const pocket_wifi_book *);
+diff --git b/firmware/tests/test_setup_ui.js a/firmware/tests/test_setup_ui.js
+index 89173df..9b32d07 100644
+--- b/firmware/tests/test_setup_ui.js
++++ a/firmware/tests/test_setup_ui.js
+@@ -1,250 +1,16 @@
+-'use strict';
+-const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
+-const html = fs.readFileSync(process.argv[2], 'utf8');
+-const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+-assert.match(html, /<form\b[^>]*id="wifi"/, 'Wi-Fi must have its own form');
+-assert.match(html, /<form\b[^>]*id="pairing"/, 'Pairing must have its own form');
+-assert(!script.includes("'/save'"), 'Combined save endpoint must be removed');
+-assert(!script.includes('innerHTML'), 'SSID must render only as text');
+-assert(!script.includes('localStorage'), 'Never persist secrets in the phone browser');
+-assert.match(html, /blank[^<]*(keep|preserv)/i, 'Blank optional fields preserve pairing');
+-assert(!/Save Wi-Fi and restart|Blank fields remove/.test(html));
+-
+-// Execute the real page script; replace only unavailable browser APIs. Fake
+-// timers and fetch make every test offline and prevent real secret submission.
+-const tests=[], test=(name,run)=>tests.push({name,run});
+-const settle=async()=>{for(let i=0;i<16;i++)await Promise.resolve()};
+-const state=changes=>({connected:false,ssid:'',connection:0,join_result:0,operation:0,
+- capacity:5,profiles:[],scan_state:0,networks:[],pairing_saved:true,store_writable:true,expires_seconds:290,...changes});
+-const response=(code,data)=>({status:code,ok:code>=200&&code<300,json:async()=>data,
+- text:async()=>typeof data==='string'?data:JSON.stringify(data)});
+-const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r});return{promise,resolve}};
+-function boot(initial=state()){
+- const elements={},calls=[],timers=new Map(),events={},confirmations=[];
+- let timerId=0,current=initial,nextFetch=null,confirmResult=true;
+- class Element{
+-  constructor(tag='div'){this.tagName=tag.toUpperCase();this.value='';this.textContent='';this.disabled=false;this.hidden=false;this.checked=false;this.children=[];this.listeners={};this.attributes={}}
+-  addEventListener(name,fn){(this.listeners[name]||=[]).push(fn)}
+-  async fire(name){for(const fn of this.listeners[name]||[])await fn({preventDefault(){}});await settle()}
+-  appendChild(child){this.children.push(child);return child}
+-  replaceChildren(...children){this.children=children}
+-  setAttribute(name,value){this.attributes[name]=String(value)}
+-  focus(){this.focused=true}
+- }
+- for(const m of html.matchAll(/<([a-z]+)\b[^>]*\bid="([^"]+)"[^>]*>/gi)){
+-  const el=elements[m[2]]=new Element(m[1]);el.disabled=/\sdisabled(?:\s|>)/.test(m[0]);el.hidden=/\shidden(?:\s|>)/.test(m[0]);
+-  el.textContent=html.slice(m.index+m[0].length).split('<')[0];
+- }
+- const ctx={document:{getElementById:id=>elements[id]||null,createElement:tag=>new Element(tag),querySelector:selector=>{
+-  assert.equal(selector,'meta[name="pocket-nonce"]');return{content:'offline-test-nonce'}}},TextEncoder,AbortController,
+-  setTimeout(fn,ms){const id=++timerId;timers.set(id,{fn,ms});return id},clearTimeout(id){timers.delete(id)},
+-  addEventListener(name,fn){events[name]=fn},confirm(message){confirmations.push(message);return confirmResult},
+-  fetch(path,options={}){calls.push({path,options});if(nextFetch){const fn=nextFetch;nextFetch=null;return fn(path,options)}
+-   if(path==='/wifi/status')return Promise.resolve(response(200,current));return Promise.reject(new Error('Unexpected action '+path))}};
+- ctx.window=ctx;vm.createContext(ctx);vm.runInContext(script,ctx);
+- return{elements,calls,timers,events,confirmations,get(id){assert(elements[id],'Missing #'+id);return elements[id]},
+-  setStatus(value){current=state(value)},next(fn){nextFetch=fn},confirm(value){confirmResult=value},
+-  async start(){await settle();return this},async tick(){const entry=[...timers].find(([,t])=>t.ms===1500);
+-   assert(entry,'Status check must be scheduled after 1500 ms');timers.delete(entry[0]);await entry[1].fn();await settle()}};
+-}
+-const body=call=>JSON.parse(call.options.body),actions=app=>app.calls.filter(c=>c.path!=='/wifi/status');
+-const descendants=el=>el.children.flatMap(c=>[c,...descendants(c)]);
+-const buttons=app=>descendants(app.get('profiles')).filter(el=>el.tagName==='BUTTON');
+-const button=(app,label)=>{const el=buttons(app).find(el=>el.textContent===label);assert(el,'Missing profile button '+label);return el};
+-async function join(app,ssid='New network',password='test-password'){
+- app.get('ssid').value=ssid;app.get('password').value=password;await app.get('wifi').fire('submit');
+-}
+-const accept=(app,operation)=>app.next(()=>Promise.resolve(response(202,{accepted:true,operation})));
+-
+-test('nonce-protected initial status and nonoverlapping 1.5 second polling',async()=>{
+- const app=await boot().start();assert.equal(app.calls[0].path,'/wifi/status');
+- assert.equal(app.calls[0].options.headers['X-Pocket-Setup'],'offline-test-nonce');assert.equal(app.calls[0].options.cache,'no-store');
+- const hold=deferred();app.next(()=>hold.promise);const check=app.tick();await settle();const count=app.calls.length;
+- await app.get('retry-status').fire('click');assert.equal(app.calls.length,count);
+- hold.resolve(response(200,state()));await check;assert.equal([...app.timers.values()].filter(t=>t.ms===1500).length,1);
+-});
+-test('literal SSIDs, saved count, and separate Wi-Fi / Hermes reachability status',async()=>{
+- const name='<img src=x onerror=alert(1)>',app=await boot(state({connected:true,ssid:name,connection:3,
+-  profiles:[{ssid:name,connected:true},{ssid:'Other',connected:false}]})).start();
+- assert.match(app.get('profile-count').textContent,/2\s*\/\s*5/);
+- assert(descendants(app.get('profiles')).some(el=>el.textContent.includes(name)));
+- assert.match(app.get('connection').textContent,/Wi-Fi connected/);assert.match(app.get('hermes-note').textContent,/Hermes.*(unreachable|reach)/i);
+- assert.match(app.get('pairing-state').textContent,/saved.*preserv|preserv.*saved/i);
+-});
+-test('async scan obtains networks only from status, shows signal, and disables open networks',async()=>{
+- const app=await boot().start();accept(app,4);await app.get('scan').fire('click');
+- assert.equal(actions(app)[0].path,'/networks');assert.equal(actions(app)[0].options.headers['X-Pocket-Setup'],'offline-test-nonce');
+- assert.match(app.get('netstatus').textContent,/Scanning/);assert.equal(app.get('networks').children.filter(el=>el.value).length,0);
+- app.setStatus({operation:4,scan_state:2,networks:[{ssid:'<b>Home</b>',rssi:-42,open:false},{ssid:'Guest',rssi:-68,open:true},{ssid:'Far',rssi:-81,open:false}]});await app.tick();
+- const opts=app.get('networks').children;assert(opts.some(el=>el.value==='<b>Home</b>'&&/Strong/.test(el.textContent)));
+- assert(opts.some(el=>el.value==='Guest'&&el.disabled&&/Fair.*Open/.test(el.textContent)));assert(opts.some(el=>el.value==='Far'&&/Weak/.test(el.textContent)));
+- app.get('networks').value='<b>Home</b>';await app.get('networks').fire('change');assert.equal(app.get('ssid').value,'<b>Home</b>');assert(app.get('password').focused);
+- app.get('showpass').checked=true;await app.get('showpass').fire('change');assert.equal(app.get('password').type,'text');
+-});
+-test('failed scan permits hidden SSID entry and explicit retry',async()=>{
+- const app=await boot().start();accept(app,1);await app.get('scan').fire('click');
+- app.setStatus({operation:1,scan_state:3});await app.tick();assert.match(app.get('netstatus').textContent,/type.*name|name.*below/i);
+- assert.equal(app.get('scan').disabled,false);accept(app,2);await join(app,'Hidden network');assert.equal(actions(app)[1].path,'/wifi/join');
+-});
+-test('join sends exactly SSID/password, accepts 32 UTF-8 bytes, clears only the accepted Wi-Fi secret',async()=>{
+- const app=await boot().start();app.get('token').value='separate pairing draft';accept(app,6);await join(app,'é'.repeat(16));
+- assert.deepEqual(body(actions(app)[0]),{ssid:'é'.repeat(16),password:'test-password'});assert.equal(actions(app)[0].path,'/wifi/join');
+- assert.equal(actions(app)[0].options.method,'POST');assert.equal(actions(app)[0].options.headers['X-Pocket-Setup'],'offline-test-nonce');
+- assert.equal(app.get('password').value,'');assert.equal(app.get('token').value,'separate pairing draft');assert.match(app.get('result').textContent,/Testing/);
+-});
+-test('invalid UTF-8 byte lengths cannot submit',async()=>{
+- const app=await boot().start();for(const[ssid,password,message]of[['','test-password',/network name/i],['é'.repeat(17),'test-password',/32/],['Home','é'.repeat(3),/8/],['Home','é'.repeat(32),/63/]]){
+-  await join(app,ssid,password);assert.match(app.get('result').textContent,message)}assert.equal(actions(app).length,0);
+-});
+-test('queued join blocks duplicate submission and ignores stale completion',async()=>{
+- const app=await boot().start();accept(app,9);await join(app);await app.get('wifi').fire('submit');assert.equal(actions(app).length,1);
+- app.setStatus({operation:8,connected:true,connection:3,join_result:2,ssid:'Old'});await app.tick();assert.match(app.get('result').textContent,/Testing/);
+- app.setStatus({operation:9,connection:2,join_result:1});await app.tick();assert.match(app.get('connection').textContent,/IP/);
+- app.setStatus({operation:9,connected:true,connection:3,join_result:2,ssid:'New network',profiles:[{ssid:'New network',connected:true}]});await app.tick();
+- assert.match(app.get('result').textContent,/saved/i);assert.equal(app.get('join').disabled,false);
+-});
+-test('authentication failure preserves known profiles and pairing and permits retry',async()=>{
+- const app=await boot(state({profiles:[{ssid:'Known',connected:false}]})).start();accept(app,2);await join(app);
+- app.setStatus({operation:2,join_result:3,connection:5,profiles:[{ssid:'Known',connected:false}]});await app.tick();
+- assert.match(app.get('result').textContent,/password|authentication/i);assert.match(app.get('result').textContent,/kept|unchanged|preserv/i);
+- assert.match(app.get('pairing-state').textContent,/preserv/i);assert.equal(app.get('join').disabled,false);
+-});
+-test('full profile storage never automatically evicts; existing SSID may be retested',async()=>{
+- const profiles=['One','Two','Three','Four','Five'].map(ssid=>({ssid,connected:false})),app=await boot(state({profiles})).start();
+- assert.match(app.get('storage-note').textContent,/full|5.*saved/i);assert.match(app.get('storage-note').textContent,/forget/i);
+- await join(app,'Six');assert.equal(actions(app).length,0);assert.match(app.get('result').textContent,/full|forget/i);
+- accept(app,1);await join(app,'Two');assert.equal(actions(app)[0].path,'/wifi/join');assert(!actions(app).some(c=>c.path==='/wifi/forget'));
+-});
+-test('saved connect never requests or transmits the typed password',async()=>{
+- const app=await boot(state({profiles:[{ssid:'Known',connected:false}]})).start();app.get('password').value='unsubmitted secret';
+- accept(app,3);await button(app,'Connect').fire('click');assert.equal(actions(app)[0].path,'/wifi/connect');assert.deepEqual(body(actions(app)[0]),{ssid:'Known'});
+-});
+-test('forget requires confirmation and awaits status before declaring removal',async()=>{
+- const app=await boot(state({profiles:[{ssid:'Known',connected:false}]})).start();app.confirm(false);await button(app,'Forget').fire('click');
+- assert.equal(actions(app).length,0);assert.match(app.confirmations[0],/Known/);app.confirm(true);accept(app,4);await button(app,'Forget').fire('click');
+- assert.equal(actions(app)[0].path,'/wifi/forget');assert.deepEqual(body(actions(app)[0]),{ssid:'Known'});assert.match(app.get('profile-count').textContent,/1\s*\/\s*5/);
+- app.setStatus({operation:4,join_result:7});await app.tick();assert.match(app.get('result').textContent,/forgotten|removed/i);assert.match(app.get('profile-count').textContent,/0\s*\/\s*5/);
+-});
+-test('second Forget ignores a pre-queue GET with a stale terminal and awaits its own fresh terminal',async()=>{
+- const profile=ssid=>({ssid,connected:false});
+- const app=await boot(state({profiles:[profile('First'),profile('Second'),profile('Keep')]})).start();
+- accept(app,1);await button(app,'Forget').fire('click');
+- app.setStatus({operation:1,join_result:7,profiles:[profile('Second'),profile('Keep')]});await app.tick();
+- assert.match(app.get('result').textContent,/forgotten|removed/i);
+- const oldGet=deferred();app.next(()=>oldGet.promise);const checking=app.tick();await settle();
+- accept(app,2);await button(app,'Forget').fire('click');
+- assert.deepEqual(body(actions(app)[1]),{ssid:'Second'});
+- // This GET began before the second action. Its result/profile fields belong
+- // to the prior terminal even if operation was read after the queue advanced.
+- oldGet.resolve(response(200,state({operation:2,join_result:7,profiles:[profile('Second'),profile('Keep')]})));await checking;
+- assert.match(app.get('result').textContent,/Removing.*Waiting/i);
+- assert.doesNotMatch(app.get('result').textContent,/forgotten|removed/i);
+- assert(buttons(app).every(el=>el.disabled),'Queued Forget must stay pending');
+- // An older operation's terminal cannot finish this action either.
+- app.setStatus({operation:1,join_result:7,profiles:[profile('Second'),profile('Keep')]});await app.tick();
+- assert.match(app.get('result').textContent,/Removing.*Waiting/i);
+- app.setStatus({operation:2,join_result:1,profiles:[profile('Second'),profile('Keep')]});await app.tick();
+- assert.match(app.get('result').textContent,/Removing.*Waiting/i);
+- app.setStatus({operation:2,join_result:7,profiles:[profile('Keep')]});await app.tick();
+- assert.match(app.get('result').textContent,/forgotten|removed/i);assert.match(app.get('profile-count').textContent,/1\s*\/\s*5/);
+- assert.equal(button(app,'Forget').disabled,false);assert.equal(actions(app).length,2);
+-});
+-test('GET begun while Forget acceptance is in flight cannot complete the accepted action',async()=>{
+- const profile={ssid:'Keep until confirmed',connected:false};
+- const app=await boot(state({profiles:[profile]})).start();
+- const posting=deferred();app.next(()=>posting.promise);const forgetting=button(app,'Forget').fire('click');await settle();
+- const oldGet=deferred();app.next(()=>oldGet.promise);const checking=app.tick();await settle();
+- posting.resolve(response(202,{accepted:true,operation:1}));await forgetting;
+- oldGet.resolve(response(200,state({operation:1,join_result:7,profiles:[profile]})));await checking;
+- assert.match(app.get('result').textContent,/Removing.*Waiting/i);assert(buttons(app).every(el=>el.disabled));
+- // A fast worker may finish before the next poll; observing pending=1 is not
+- // required when a new GET confirms this operation's actual terminal state.
+- app.setStatus({operation:1,join_result:7});await app.tick();
+- assert.match(app.get('result').textContent,/forgotten|removed/i);assert.match(app.get('profile-count').textContent,/0\s*\/\s*5/);
+-});
+-test('cancel sends an empty body and status confirms restored networking',async()=>{
+- const app=await boot().start();accept(app,1);await join(app);assert.equal(app.get('cancel').disabled,false);accept(app,2);await app.get('cancel').fire('click');
+- assert.equal(actions(app)[1].path,'/wifi/cancel');assert.deepEqual(body(actions(app)[1]),{});
+- app.setStatus({operation:2,join_result:4,connected:true,ssid:'Known',connection:3,profiles:[{ssid:'Known',connected:true}]});await app.tick();
+- assert.match(app.get('result').textContent,/cancel/i);assert.match(app.get('connection').textContent,/Known/);
+-});
+-test('explicit HTTP rejection retains input for correction',async()=>{
+- const app=await boot().start();app.next(()=>Promise.resolve(response(400,'Invalid Wi-Fi settings.')));await join(app);
+- assert.match(app.get('result').textContent,/Invalid Wi-Fi settings/);assert.equal(app.get('password').value,'test-password');assert.equal(app.get('join').disabled,false);
+-});
+-test('uncertain action never resends secrets; retry checks status only',async()=>{
+- const app=await boot().start();app.next(()=>Promise.reject(new Error('connection dropped')));await join(app);
+- assert.match(app.get('result').textContent,/confirm|uncertain/i);assert.equal(app.get('password').value,'');assert.equal(app.get('join').disabled,true);
+- app.setStatus({operation:3,join_result:1,connection:1});await app.get('retry-status').fire('click');assert.equal(actions(app).length,1);assert.equal(app.get('join').disabled,true);
+- app.setStatus({operation:3,join_result:2,connected:true,connection:3,ssid:'New network',profiles:[{ssid:'New network',connected:true}]});await app.tick();
+- assert.equal(actions(app).length,1);assert.match(app.get('result').textContent,/check.*saved|confirm|uncertain/i);assert.equal(app.get('join').disabled,false);
+-});
+-test('save failure does not claim the tested profile was persisted',async()=>{
+- const app=await boot().start();accept(app,1);await join(app);app.setStatus({operation:1,join_result:6,connection:3,store_writable:false});await app.tick();
+- const message=app.get('result').textContent;
+- assert.match(message,/could not confirm saving/i);assert.match(message,/check saved networks before retrying/i);
+- assert.match(message,/Hermes pairing was kept/);assert.doesNotMatch(message,/profiles.*(kept|unchanged|preserv)/i);
+- assert.match(app.get('storage-note').textContent,/storage|read.only|writ/i);assert.equal(app.get('join').disabled,true);
+-});
+-test('status outage preserves visible profiles and disables changes until recovery',async()=>{
+- const app=await boot(state({profiles:[{ssid:'Known',connected:false}]})).start();app.next(()=>Promise.reject(new Error('offline')));await app.tick();
+- assert.match(app.get('session-status').textContent,/reach|unavailable|reconnect/i);assert.equal(app.get('join').disabled,true);assert.match(app.get('profile-count').textContent,/1\s*\/\s*5/);
+- await app.tick();assert.equal(app.get('join').disabled,false);
+-});
+-test('poll failure during an accepted test reports uncertain completion until status confirms it',async()=>{
+- const app=await boot().start();accept(app,7);await join(app);
+- app.next(()=>Promise.reject(new Error('hotspot interrupted')));await app.tick();
+- assert.match(app.get('result').textContent,/could not confirm|uncertain/i);
+- assert.equal(actions(app).length,1);assert.equal(app.get('join').disabled,true);
+- app.setStatus({operation:7,join_result:1,connection:2});await app.tick();
+- assert.match(app.get('result').textContent,/Testing|Connecting/);
+- app.setStatus({operation:7,join_result:2,connected:true,connection:3,ssid:'New network',profiles:[{ssid:'New network',connected:true}]});await app.tick();
+- assert.match(app.get('result').textContent,/saved/i);assert.equal(actions(app).length,1);
+-});
+-test('pairing is explicit and separate, blank fields preserve values, accepted save clears fields',async()=>{
+- const app=await boot().start();await app.get('pairing').fire('submit');assert.equal(actions(app).length,0);assert.match(app.get('pair-result').textContent,/kept|unchanged|preserv/i);
+- app.get('windows').value='https://bridge.example';app.get('token').value='t'.repeat(32);app.next(()=>Promise.resolve(response(200,'Pairing saved.')));await app.get('pairing').fire('submit');
+- assert.equal(actions(app)[0].path,'/pairing');assert.deepEqual(body(actions(app)[0]),{windows:'https://bridge.example',linux:'',token:'t'.repeat(32),ca:''});
+- for(const id of['windows','linux','token','ca'])assert.equal(app.get(id).value,'');assert.match(app.get('pair-result').textContent,/saved/i);assert(!/restart|reboot/i.test(app.get('pair-result').textContent));
+-});
+-test('invalid optional pairing values cannot submit',async()=>{
+- const app=await boot().start();for(const[id,value,pattern]of[['windows','http://bridge.example',/HTTPS/],['linux','https://user@bridge.example',/HTTPS/],['token','short',/32/],['ca','bad',/certificate/i]]){
+-  app.get(id).value=value;await app.get('pairing').fire('submit');assert.match(app.get('pair-result').textContent,pattern);app.get(id).value=''}assert.equal(actions(app).length,0);
+-});
+-test('uncertain pairing clears fields and never retries secrets',async()=>{
+- const app=await boot().start();app.get('token').value='x'.repeat(32);app.next(()=>Promise.reject(new Error('timeout')));await app.get('pairing').fire('submit');
+- assert.equal(app.get('token').value,'');assert.match(app.get('pair-result').textContent,/confirm|uncertain/i);await app.tick();assert.equal(actions(app).length,1);
+-});
+-test('read-only storage disables mutations while allowing saved connect',async()=>{
+- const app=await boot(state({store_writable:false,profiles:[{ssid:'Known',connected:false}]})).start();
+- assert.equal(app.get('join').disabled,true);assert.equal(app.get('pair-save').disabled,true);assert.equal(button(app,'Forget').disabled,true);assert.equal(button(app,'Connect').disabled,false);
+-});
+-test('403 expiry stops polling and every action',async()=>{
+- const app=await boot(state({profiles:[{ssid:'Known',connected:false}]})).start();app.next(()=>Promise.resolve(response(403,'Setup expired.')));await app.tick();
+- assert.match(app.get('session-status').textContent,/expired.*hold OK|hold OK.*expired/i);
+- for(const id of['join','scan','cancel','pair-save','retry-status'])assert.equal(app.get(id).disabled,true);assert(buttons(app).every(el=>el.disabled));
+- assert.equal([...app.timers.values()].filter(t=>t.ms===1500).length,0);const count=app.calls.length;await app.get('scan').fire('click');await app.get('wifi').fire('submit');assert.equal(app.calls.length,count);
+- if(app.events.pageshow)await app.events.pageshow();assert.equal(app.calls.length,count);
+-});
+-test('action expiry clears typed secrets without a success claim',async()=>{
+- const app=await boot().start();app.next(()=>Promise.resolve(response(403,'Setup expired.')));await join(app);
+- assert.equal(app.get('password').value,'');assert.match(app.get('session-status').textContent,/expired/i);assert(!/Testing|saved/i.test(app.get('result').textContent));
+-});
+-test('zero remaining time and pagehide stop future polls',async()=>{
+- const expired=await boot(state({expires_seconds:0})).start();assert.match(expired.get('session-status').textContent,/expired/i);assert.equal([...expired.timers.values()].filter(t=>t.ms===1500).length,0);
+- const app=await boot().start();assert(app.events.pagehide);app.events.pagehide();assert.equal([...app.timers.values()].filter(t=>t.ms===1500).length,0);
+-});
+-test('returning to a cached phone page checks status again without restoring typed secrets',async()=>{
+- const app=await boot().start();app.get('password').value='private draft';app.get('token').value='private pairing draft';
+- app.events.pagehide();assert.equal(app.get('password').value,'');assert.equal(app.get('token').value,'');
+- assert(app.events.pageshow,'Cached page must resume status checks on pageshow');
+- const before=app.calls.length;await app.events.pageshow();await settle();
+- assert.equal(app.calls.length,before+1);assert.equal(app.calls.at(-1).path,'/wifi/status');assert.equal(actions(app).length,0);
+-});
+-test('request timeout is uncertain and cannot resend the Wi-Fi password',async()=>{
+- const app=await boot().start();app.next((path,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new Error('aborted')))));
+- const sending=join(app);await settle();const timeout=[...app.timers.values()].find(timer=>timer.ms===15000);
+- assert(timeout,'Request must have a finite timeout');timeout.fn();await sending;
+- assert.match(app.get('result').textContent,/confirm|uncertain/i);assert.equal(app.get('password').value,'');assert.equal(actions(app).length,1);
+-});
+-(async()=>{for(const{name,run}of tests){try{await run();console.log('PASS '+name)}catch(error){console.error('FAIL '+name+'\n'+error.stack);process.exitCode=1;return}}console.log('PASS '+tests.length+' offline setup UI tests')})();
++const fs=require('fs'),vm=require('vm'),assert=require('assert');
++const html=fs.readFileSync(process.argv[2],'utf8');
++const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
++const elements={};let handler;const el=id=>elements[id]||(elements[id]={value:'',textContent:'',disabled:false,hidden:false,addEventListener:(event,fn)=>{if(id==='setup'&&event==='submit')handler=fn},appendChild:()=>{},focus:()=>{},replaceChildren:()=>{}});
++const ctx={document:{getElementById:el,createElement:()=>({})},TextEncoder,AbortController,setTimeout,clearTimeout,fetch:async()=>({ok:true,json:async()=>({networks:[]})})};vm.createContext(ctx);vm.runInContext(script,ctx);
++assert(handler,'submit handler registered explicitly');
++const valid={ssid:'Home',password:'password123',windows:'',linux:'',token:'',ca:''};
++assert.equal(ctx.validateSettings(valid),'');
++assert.match(ctx.validateSettings({...valid,ssid:''}),/Wi-Fi/);
++assert.match(ctx.validateSettings({...valid,password:'123'}),/8/);
++assert.match(ctx.validateSettings({...valid,ssid:'猫'.repeat(11)}),/31/);
++assert.match(ctx.validateSettings({...valid,linux:'http://example.com'}),/HTTPS/);
++assert.match(ctx.validateSettings({...valid,token:'short'}),/32/);
++assert.match(ctx.validateSettings({...valid,ca:'bad'}),/certificate/);
++assert(!script.includes('innerHTML'),'SSID must never render as HTML');
++console.log('PASS setup UI validation and initialization');
+diff --git b/firmware/tests/ui_snapshot.c a/firmware/tests/ui_snapshot.c
+index 0eee0cf..ab2082a 100644
+--- b/firmware/tests/ui_snapshot.c
++++ a/firmware/tests/ui_snapshot.c
+@@ -56,23 +56,13 @@ static void assert_usage_labels(pocket_ui_view view){
+   if(lv_obj_has_flag(child,LV_OBJ_FLAG_HIDDEN)||!lv_obj_check_type(child,&lv_label_class))continue;
+   if(lv_obj_get_x(child)==18&&lv_obj_get_y(child)==273){
+    found_footer=true;
+-   const bool home=!view.setup_active&&view.page==POCKET_STATUS;
+-   const lv_font_t *expected=usage||view.reader_active||home?&lv_font_montserrat_14:lv_obj_get_style_text_font(screen,LV_PART_MAIN);
++   const lv_font_t *expected=usage||view.reader_active?&lv_font_montserrat_14:lv_obj_get_style_text_font(screen,LV_PART_MAIN);
+    assert(lv_obj_get_style_text_font(child,LV_PART_MAIN)==expected);
+    if(usage){
+     const char *text=lv_label_get_text(child);fits_usage_line(text,204,0);
+     assert(strstr(text,view.usage_window%POCKET_USAGE_DASHBOARD_PAGES<POCKET_USAGE_LOCAL_PAGES?"All recorded Pocket runs":"Account quota / resets"));
+     assert(strstr(text,"UP/DN: pages"));
+    }
+-   if(home&&!view.reader_active){
+-    const char *text=lv_label_get_text(child);fits_usage_line(text,204,0);
+-    assert(strstr(text,"MYT"));
+-    if(!view.clock_ready)assert(strstr(text,"Waiting for time (MYT)"));
+-    else if(view.now==1792139700)assert(strstr(text,"16 Oct 2026 16:35 MYT"));
+-    else if(view.now==1792139760)assert(strstr(text,"16 Oct 2026 16:36 MYT"));
+-    else if(view.now==1798732740)assert(strstr(text,"31 Dec 2026 23:59 MYT"));
+-    else if(view.now==1798732800)assert(strstr(text,"01 Jan 2027 00:00 MYT"));
+-   }
+   }
+   if(usage&&lv_obj_get_y(child)==60){
+    const unsigned page=view.usage_window%POCKET_USAGE_DASHBOARD_PAGES;
+@@ -330,13 +320,5 @@ int main(int argc,char **argv){
+  v.alert_threshold=90;v.alert_note="Last: Codex 90.0% used\nLimit 90.0% used";failed|=shot(out,"alerts-note",v,240);
+  v=base;v.page=POCKET_SCREEN_OFF;failed|=shot(out,"screen",v,600);
+  v=base;v.setup_active=true;v.ssid="HermesPocket-4F2A";v.password="cat-nap-4821";failed|=shot(out,"setup",v,240);
+- v.setup_message="Testing Wi-Fi; old networks retained";failed|=shot(out,"setup-wifi-testing",v,240);
+- v.setup_message="Wi-Fi saved. Check Hermes on Status";failed|=shot(out,"setup-wifi-saved",v,240);
+- v.setup_message="Join failed; restoring saved Wi-Fi";failed|=shot(out,"setup-wifi-failed",v,240);
+- v=base;v.clock_ready=true;v.now=1792139700;failed|=shot(out,"home-clock-synced",v,240);
+- v.wifi_connected=v.online=false;v.now+=60;failed|=shot(out,"home-clock-offline",v,240);
+- v.now=1798732740;failed|=shot(out,"home-clock-year-end",v,240);
+- v.now+=60;failed|=shot(out,"home-clock-new-year",v,240);
+- v.wifi_connected=v.online=true;failed|=shot(out,"home-clock-reconnected",v,240);
+  return failed;
+ }

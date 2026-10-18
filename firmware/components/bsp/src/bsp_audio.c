@@ -9,6 +9,7 @@
 #include "es8311_codec.h"
 #include "driver/gpio.h"
 #include "driver/i2s_std.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,6 +32,29 @@ static esp_err_t s_sleep_result;
 static bool     s_codec_release_failed;
 static uint8_t  s_volume;
 static int      s_io_error;
+
+// Static internal RAM remains valid through codec/channel teardown. The ISR
+// never dereferences a codec or channel handle, including during cleanup.
+static DRAM_ATTR portMUX_TYPE s_tx_completion_lock = portMUX_INITIALIZER_UNLOCKED;
+static DRAM_ATTR uint32_t s_tx_completed;
+
+static bool IRAM_ATTR audio_tx_sent(i2s_chan_handle_t channel,
+                                   i2s_event_data_t *event, void *context) {
+    (void)channel;
+    (void)event;
+    (void)context;
+    portENTER_CRITICAL_ISR(&s_tx_completion_lock);
+    s_tx_completed++;
+    portEXIT_CRITICAL_ISR(&s_tx_completion_lock);
+    return false;
+}
+
+static uint32_t audio_tx_completions(void) {
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    uint32_t completed = s_tx_completed;
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    return completed;
+}
 
 // esp_codec_dev 1.6.2 discards some control/data interface errors. Remember the
 // first one at the public interface boundary; never inspect its private state.
@@ -126,6 +150,7 @@ static const audio_codec_data_if_t s_checked_data = {
 #define AUDIO_DEFAULT_HZ   16000
 #define AUDIO_DEFAULT_BITS 16
 #define AUDIO_DEFAULT_CH   1
+#define AUDIO_DMA_DESC_COUNT 6
 #define ES8311_SLEEP_ATTEMPTS 2
 #define ES8311_SLEEP_RETRY_MS 5
 
@@ -303,7 +328,7 @@ static esp_err_t i2s_full_duplex_init(void) {
     i2s_chan_config_t chan = {
         .id = BSP_I2S_PORT,
         .role = I2S_ROLE_MASTER,
-        .dma_desc_num = 6,
+        .dma_desc_num = AUDIO_DMA_DESC_COUNT,
         .dma_frame_num = 240,
         .auto_clear_after_cb = true,
         .auto_clear_before_cb = false,
@@ -343,6 +368,14 @@ static esp_err_t i2s_full_duplex_init(void) {
     }
     if ((e = i2s_channel_init_std_mode(s_rx, &std)) != ESP_OK) {
         ESP_LOGE(TAG, "i2s rx 初始化失败: %s", esp_err_to_name(e)); return e;
+    }
+    // This is a new TX channel with no other callbacks. Register once while
+    // READY; codec format changes subsequently stop/restart the same channel.
+    const i2s_event_callbacks_t callbacks = { .on_sent = audio_tx_sent };
+    e = i2s_channel_register_event_callback(s_tx, &callbacks, NULL);
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "I2S TX completion callback: %s", esp_err_to_name(e));
+        return e;
     }
     // esp_codec_dev_open 内部重配前会先 i2s_channel_disable,而 disable 要求通道处于
     // RUNNING;刚 init 的通道是 READY,会打一条 "channel has not been enabled yet" 错误日志。
@@ -557,6 +590,36 @@ esp_err_t bsp_audio_wake(void) {
 esp_err_t bsp_audio_write(const void *pcm, size_t bytes) {
     if (!s_dev || !s_opened || s_sleeping) return ESP_ERR_INVALID_STATE;
     return esp_codec_dev_write(s_dev, (void *)pcm, bytes) == 0 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t bsp_audio_drain(uint32_t timeout_ms) {
+    return bsp_audio_drain_cancel(timeout_ms, NULL, NULL);
+}
+
+esp_err_t bsp_audio_drain_cancel(uint32_t timeout_ms,
+                                 bool (*cancelled)(void *), void *context) {
+    if (!s_dev || !s_opened || s_sleeping || !s_tx) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // i2s_channel_write() only copies to the circular DMA buffers. Starting
+    // after the caller's final write, one entire ring plus one completion
+    // covers every queued buffer and an EOF already in flight at the snapshot.
+    // Require fresh hardware progress: a stopped/stalled TX must time out.
+    const uint32_t initial = audio_tx_completions();
+    const TickType_t started = xTaskGetTickCount();
+    const TickType_t budget = pdMS_TO_TICKS(timeout_ms);
+    for (;;) {
+        if (cancelled && cancelled(context)) return ESP_ERR_INVALID_STATE;
+        if ((TickType_t)(xTaskGetTickCount() - started) >= budget) {
+            return ESP_ERR_TIMEOUT;
+        }
+        if ((uint32_t)(audio_tx_completions() - initial) >=
+            AUDIO_DMA_DESC_COUNT + 1u) {
+            return ESP_OK;
+        }
+        vTaskDelay(1);
+    }
 }
 
 esp_err_t bsp_audio_read(void *pcm, size_t bytes) {

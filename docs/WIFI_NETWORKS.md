@@ -1,0 +1,22 @@
+# Saved Wi-Fi networks
+
+Unverified candidate: the original five-network/clock build failed reconnect and
+was rolled back to `2eabc460`. This branch contains its correction and tests,
+without corrected physical acceptance. Below is intended behavior; see
+[checkpoint status](CHECKPOINT-STATUS.md).
+
+Pocket remembers up to five password-protected networks. The existing network is imported from the legacy settings in memory on the first boot; that boot does not rewrite Wi-Fi or Hermes pairing. An existing valid profile list, including an intentionally empty list, takes precedence over legacy settings. Damaged records are reported without silently reviving a forgotten network.
+
+On Status, hold OK to open the five-minute phone setup window. Join the password-protected Pocket hotspot shown on its screen and open `http://192.168.4.1`. Choose Scan Wi-Fi or type a hidden network name, enter its password, then choose **Test and save Wi-Fi**. A fresh association followed by an IP address for that network is required before saving. No Hermes, speech or model request is made to validate Wi-Fi. Wi-Fi can work on a new network while the existing LAN-only Hermes address remains unreachable.
+
+The phone page lists saved names, current connection and progress. **Connect** uses a saved profile without exposing its password. **Forget** requires an explicit confirmation; nothing is evicted automatically when five slots are full. Retesting an existing name updates its password only after the new credentials work. Cancel, authentication failure and a bounded 20-second connection/IP timeout preserve the previous book and restore known networking. A cancellation after saving has completed does not remove the saved profile; use Forget for that action.
+
+When disconnected, Pocket scans and selects an available saved network, preferring its most recent successful choice in the current session, then other visible known networks by signal strength. Hidden saved networks receive bounded direct attempts. Failed cycles back off from 10 to 60 seconds. A healthy connection is retained without background scanning or roaming. Voice, automatic reconnect and provisioning share an atomic radio reservation; setup waits for a bounded automatic attempt, and cannot interrupt active speech.
+
+Wi-Fi operations use a separate NVS namespace and never write the original Hermes pairing record. The optional **Hermes pairing** form is a separate explicit action: blank fields retain existing addresses, token and CA. The page never reads back saved passwords, tokens or certificates. Profile records have a previous complete copy; first saves and confirmed deletions update both copies so recovery cannot resurrect an explicitly forgotten network. If storage completion cannot be confirmed, the page says so and stops promising that the requested change was saved.
+
+Setup starts only after a physical owner gesture. Its hotspot retains WPA2, required PMF, one connected client, AP-interface-only HTTP handlers, a per-window nonce, bounded request bodies and a five-minute deadline. Expiry cancels unfinished tests and clears pending credentials; normal known-network reconnect continues. No automatic factory reset, NVS erase, router changes, TLS bypass, or credential rotation occurs.
+
+Passwords are entered by the owner in the phone page. The firmware tests use synthetic profiles and fake radio/storage interfaces. The deployment check reconnects only to the existing saved network; adding another real network, a wrong-password attempt, and fallback between physical networks remain owner-operated checks.
+
+Home also shows the date and 24-hour time in Malaysia time (MYT, UTC+08:00). It reuses the existing SNTP synchronization and system clock, with no additional time server or background task. Until a valid synchronization occurs during that boot, it shows **Waiting for time (MYT)**. After syncing, it keeps ticking offline and updates the displayed minute while awake. Standby stops rendering; waking shows the current time. A cold boot without network access must wait for synchronization again. Usage and full-reply screens keep their existing layouts and UTC data semantics.
