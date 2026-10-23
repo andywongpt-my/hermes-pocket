@@ -1,6 +1,7 @@
 /* MIT. Owner-initiated secure setup; one worker owns scans and radio changes. */
 #include "pocket_setup.h"
 #include "pocket_pairing.h"
+#include "pocket_linux_link.h"
 #include "pocket_wifi_store.h"
 #include "pocket_setup_address.h"
 #include "pocket_setup_page.h"
@@ -24,7 +25,7 @@
 static portMUX_TYPE lock=portMUX_INITIALIZER_UNLOCKED;
 static pocket_setup_state state;
 static pocket_wifi_snapshot radio;
-static bool station_associated;
+static bool station_associated,station_request_pending;
 static pocket_wifi_engine engine;
 static pocket_wifi_store profile_store;
 static TaskHandle_t worker;
@@ -44,7 +45,7 @@ typedef struct {
  char profiles[POCKET_WIFI_CAPACITY][33];
  pocket_wifi_visible networks[POCKET_WIFI_SCAN_MAX];
  unsigned count,network_count,scan_state,connection,join_result,operation;
- bool pending,paired;
+ bool pending,paired,connection_busy;
 } setup_public_state;
 static setup_public_state public_state;
 
@@ -71,12 +72,49 @@ void pocket_setup_poll_release(void){
 static void message(const char *text){portENTER_CRITICAL(&lock);snprintf(state.message,sizeof state.message,"%s",text);portEXIT_CRITICAL(&lock);}
 void pocket_setup_read(pocket_setup_state *out){portENTER_CRITICAL(&lock);*out=state;portEXIT_CRITICAL(&lock);}
 static pocket_wifi_snapshot snapshot(void){portENTER_CRITICAL(&lock);pocket_wifi_snapshot copy=radio;portEXIT_CRITICAL(&lock);return copy;}
-bool pocket_setup_link(unsigned target,pocket_link_config *out){
+#ifndef POCKET_LINUX_PUBLIC_ORIGIN
+#define POCKET_LINUX_PUBLIC_ORIGIN ""
+#endif
+static bool link_reported[2];
+static bool load_pairing_config(pocket_pairing_config *out){return pocket_pairing_load(out)==ESP_OK;}
+bool pocket_setup_link(unsigned target,pocket_link_config *out) {
  if(!out || target>1)return false;
- memset(out,0,sizeof *out);pocket_pairing_config *saved=calloc(1,sizeof *saved);if(!saved)return false;
- bool valid=pocket_pairing_load(saved)==ESP_OK;
- if(valid){snprintf(out->origin,sizeof out->origin,"%s",target?saved->linux_url:saved->windows);memcpy(out->token,saved->token,sizeof out->token);memcpy(out->ca,saved->ca,sizeof out->ca);}
- memset(saved,0,sizeof *saved);free(saved);return valid && out->origin[0] && out->token[0];
+ memset(out,0,sizeof(*out));pocket_pairing_config *saved=calloc(1,sizeof(*saved));
+ if(!saved)return false;
+ bool valid=load_pairing_config(saved),public_link=false;
+ if(valid){snprintf(out->origin,sizeof(out->origin),"%s",target?saved->linux_url:saved->windows);
+  memcpy(out->token,saved->token,sizeof(out->token));memcpy(out->ca,saved->ca,sizeof(out->ca));
+  if(target==1 && saved->token[0]){
+   public_link=pocket_linux_link_select(POCKET_LINUX_PUBLIC_ORIGIN,saved->linux_url,out->origin,sizeof out->origin);
+   if(public_link)memset(out->ca,0,sizeof out->ca); /* Existing verified public bundle path, Linux only. */
+  }
+ }
+ bool report;portENTER_CRITICAL(&lock);report=!link_reported[target];link_reported[target]=true;portEXIT_CRITICAL(&lock);
+ if(report)ESP_LOGI("pocket_link_mode","target=%u approved_origin=%u public_ca=%u legacy_preserved=%u",target,
+                   (unsigned)public_link,(unsigned)(valid&&!out->ca[0]),(unsigned)valid);
+ memset(saved,0,sizeof(*saved));free(saved);
+ return valid && out->origin[0] && out->token[0];
+}
+static void migrate_linux_public(void){
+ if(!POCKET_LINUX_PUBLIC_ORIGIN[0])return;
+ pocket_pairing_config *before=calloc(1,sizeof *before),*after=calloc(1,sizeof *after);
+ esp_err_t result=ESP_ERR_NO_MEM;bool preserved=false,wifi=false,windows=false,pairing=false,ca=false;
+ if(before&&after){
+  result=ESP_ERR_NOT_FOUND;
+  if(load_pairing_config(before)&&before->token[0]){
+   result=pocket_linux_link_apply_once(POCKET_LINUX_PUBLIC_ORIGIN,before->linux_url);
+   if(load_pairing_config(after)){
+    preserved=!memcmp(before,after,sizeof *before);
+    wifi=!memcmp(before->ssid,after->ssid,sizeof before->ssid)&&!memcmp(before->pass,after->pass,sizeof before->pass);
+    windows=!memcmp(before->windows,after->windows,sizeof before->windows);
+    pairing=!memcmp(before->token,after->token,sizeof before->token);
+    ca=!memcmp(before->ca,after->ca,sizeof before->ca);
+   }
+  }
+ }
+ ESP_LOGI("pocket_link_migration","result=%d preserved=%u wifi=%u windows=%u pairing=%u ca=%u",result,
+          (unsigned)preserved,(unsigned)wifi,(unsigned)windows,(unsigned)pairing,(unsigned)ca);
+ if(before){memset(before,0,sizeof *before);free(before);}if(after){memset(after,0,sizeof *after);free(after);}
 }
 static bool pairing_saved(void){
  pocket_pairing_config *saved=calloc(1,sizeof *saved);if(!saved)return false;
@@ -118,6 +156,7 @@ static esp_err_t wifi_status(httpd_req_t *req){
  bool ok=cJSON_AddBoolToObject(root,"connected",current.connected) && cJSON_AddStringToObject(root,"ssid",current.connected?current.ssid:"")
   && cJSON_AddNumberToObject(root,"connection",copy.connection) && cJSON_AddNumberToObject(root,"join_result",copy.join_result)
   && cJSON_AddNumberToObject(root,"operation",copy.operation) && cJSON_AddNumberToObject(root,"capacity",POCKET_WIFI_CAPACITY)
+  && cJSON_AddBoolToObject(root,"connection_busy",copy.connection_busy)
   && cJSON_AddNumberToObject(root,"scan_state",copy.scan_state) && cJSON_AddBoolToObject(root,"pairing_saved",copy.paired)
   && cJSON_AddBoolToObject(root,"store_writable",profile_store.writable)
   && cJSON_AddNumberToObject(root,"expires_seconds",expires>esp_timer_get_time()?(double)((expires-esp_timer_get_time())/1000000):0);
@@ -167,7 +206,7 @@ static esp_err_t enqueue(httpd_req_t *req,setup_command *command){
   cJSON *root=cJSON_CreateObject();if(root){cJSON_AddBoolToObject(root,"accepted",true);cJSON_AddNumberToObject(root,"operation",operation);}
   httpd_resp_set_status(req,"202 Accepted");return send_json(req,root);
  }
- portENTER_CRITICAL(&lock);bool busy=public_state.pending || public_state.join_result==POCKET_WIFI_JOIN_TESTING;
+ portENTER_CRITICAL(&lock);bool busy=public_state.pending || public_state.connection_busy || public_state.join_result==POCKET_WIFI_JOIN_TESTING;
  unsigned previous_join=public_state.join_result;
  busy=busy || atomic_load(&cancel_requested);
  if(!busy){public_state.pending=true;public_state.operation++;if(!public_state.operation)public_state.operation=1;pending_command=*command;pending_operation=public_state.operation;if(command->kind==CMD_SCAN)public_state.scan_state=1;else public_state.join_result=POCKET_WIFI_JOIN_TESTING;}
@@ -228,7 +267,7 @@ static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data){
  if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP && station_associated){radio.connected=true;radio.got_ip++;state.wifi_connected=true;}
  if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED){
   const wifi_event_sta_disconnected_t *disconnected=data;unsigned reason=disconnected?disconnected->reason:0;
-  station_associated=false;radio.connected=false;radio.disconnected++;state.wifi_connected=false;
+  station_associated=false;station_request_pending=false;radio.connected=false;radio.disconnected++;state.wifi_connected=false;
   radio.reason=reason==WIFI_REASON_AUTH_FAIL || reason==WIFI_REASON_HANDSHAKE_TIMEOUT || reason==WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT?POCKET_WIFI_REASON_AUTH:
    reason==WIFI_REASON_NO_AP_FOUND || reason==WIFI_REASON_NO_AP_FOUND_W_COMPATIBLE_SECURITY || reason==WIFI_REASON_NO_AP_FOUND_IN_AUTHMODE_THRESHOLD || reason==WIFI_REASON_NO_AP_FOUND_IN_RSSI_THRESHOLD?POCKET_WIFI_REASON_NOT_FOUND:POCKET_WIFI_REASON_OTHER;
  }
@@ -256,16 +295,24 @@ static int radio_disconnect(void *unused){
  if(query!=ESP_OK && query!=ESP_ERR_WIFI_NOT_CONNECT)return -1;
  /* IDF succeeds without a disconnect event when no association exists.
     An existing association still requires its fresh disconnect callback. */
+ portENTER_CRITICAL(&lock);bool pending=station_request_pending;portEXIT_CRITICAL(&lock);
  const bool associated=query==ESP_OK;esp_err_t error=esp_wifi_disconnect();
- ESP_LOGI("pocket_wifi_driver","associated=%u query=%d disconnect=%d",(unsigned)associated,query,error);
+ ESP_LOGI("pocket_wifi_driver","associated=%u pending=%u query=%d disconnect=%d",(unsigned)associated,(unsigned)pending,query,error);
  if(error==ESP_OK || error==ESP_ERR_WIFI_NOT_CONNECT){portENTER_CRITICAL(&lock);station_associated=false;radio.connected=false;state.wifi_connected=false;portEXIT_CRITICAL(&lock);}
- return error==ESP_OK?(associated?0:1):error==ESP_ERR_WIFI_NOT_CONNECT?1:-1;
+ /* Only initial idle can retire synchronously. A previously issued connect
+    remains fenced until its callback, even if association has not completed. */
+ return error==ESP_OK || error==ESP_ERR_WIFI_NOT_CONNECT?((associated||pending)?0:1):-1;
 }
 static bool radio_connect(void *unused,const pocket_wifi_profile *profile){
  (void)unused;wifi_config_t config={0};memcpy(config.sta.ssid,profile->ssid,strlen(profile->ssid));memcpy(config.sta.password,profile->password,strlen(profile->password));
  config.sta.threshold.authmode=WIFI_AUTH_WPA2_PSK;
  esp_err_t error=esp_wifi_set_config(WIFI_IF_STA,&config);memset(&config,0,sizeof config);
- return error==ESP_OK && esp_wifi_connect()==ESP_OK;
+ if(error!=ESP_OK)return false;
+ /* Set before the driver call so an immediate callback cannot race admission. */
+ portENTER_CRITICAL(&lock);station_request_pending=true;portEXIT_CRITICAL(&lock);
+ error=esp_wifi_connect();
+ if(error!=ESP_OK){portENTER_CRITICAL(&lock);station_request_pending=false;portEXIT_CRITICAL(&lock);}
+ return error==ESP_OK;
 }
 static bool save_profiles(void *unused,const pocket_wifi_book *book){
  (void)unused;if(!window_open() || atomic_load(&cancel_requested) || atomic_load(&radio_owner)!=RADIO_SETUP)return false;
@@ -274,6 +321,7 @@ static bool save_profiles(void *unused,const pocket_wifi_book *book){
 static void publish(void){
  pocket_wifi_snapshot current=snapshot();
  portENTER_CRITICAL(&lock);public_state.count=engine.book.count;public_state.connection=engine.connection;if(!public_state.pending)public_state.join_result=engine.join_result;state.configured=engine.book.count>0;
+ public_state.connection_busy=pocket_wifi_attempting(&engine)&&!engine.testing;
  memset(public_state.profiles,0,sizeof public_state.profiles);for(unsigned i=0;i<engine.book.count;i++)memcpy(public_state.profiles[i],engine.book.profiles[i].ssid,33);
  bool active=state.active;portEXIT_CRITICAL(&lock);
  static unsigned previous=~0u;
@@ -341,7 +389,12 @@ static void work_step(bool notified,int64_t now){
  if(received){
   pocket_wifi_snapshot current=snapshot();
   if(window_open() && atomic_load(&radio_owner)==RADIO_SETUP){
-   if(command.kind==CMD_JOIN)pocket_wifi_join(&engine,&command.profile,now/1000,&current);
+   if(command.kind==CMD_JOIN){
+    /* This accepted operation needs its own terminal result if cleanup rejects
+       admission. The core replaces this default with TESTING or FULL. */
+    engine.join_result=POCKET_WIFI_JOIN_FAILED;
+    (void)pocket_wifi_join(&engine,&command.profile,now/1000,&current);
+   }
    else if(command.kind==CMD_SELECT){if(!pocket_wifi_select(&engine,command.profile.ssid,now/1000,&current))engine.join_result=POCKET_WIFI_JOIN_FAILED;}
    else if(command.kind==CMD_FORGET){if(!pocket_wifi_forget(&engine,command.profile.ssid,now/1000,&current) && engine.join_result!=POCKET_WIFI_JOIN_SAVE_FAILED)engine.join_result=POCKET_WIFI_JOIN_FAILED;}
    else if(command.kind==CMD_CANCEL)pocket_wifi_cancel(&engine,now/1000,&current);
@@ -365,6 +418,7 @@ static void work_step(bool notified,int64_t now){
 static void work(void *unused){(void)unused;for(;;){bool notified=ulTaskNotifyTake(pdTRUE,pdMS_TO_TICKS(250))!=0;work_step(notified,esp_timer_get_time());}}
 esp_err_t pocket_setup_init(void){
  esp_err_t error=nvs_flash_init();if(error!=ESP_OK)return error;
+ migrate_linux_public();
  pocket_wifi_book book;pocket_wifi_store_result loaded=pocket_wifi_store_load(&profile_store,&book);bool legacy=false;
  if(loaded==POCKET_WIFI_STORE_ABSENT){
   pocket_wifi_book_init(&book);pocket_wifi_profile original;

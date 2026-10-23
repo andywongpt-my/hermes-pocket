@@ -1,0 +1,214 @@
+{
+  "date_utc": "2026-10-23",
+  "environment": "Windows, Python 3.11",
+  "results": [
+    {
+      "group": "root",
+      "exit_code": 1,
+      "timed_out": false,
+      "elapsed_seconds": 89.296,
+      "tests_run": 394,
+      "result_lines": [
+        "Ran 394 tests in 88.261s",
+        "FAILED (errors=61, skipped=19)"
+      ],
+      "command": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "native_account_service_hardware_or_paid_checks": false
+    },
+    {
+      "group": "quota",
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 22.265,
+      "tests_run": 139,
+      "result_lines": [
+        "Ran 139 tests in 21.720s",
+        "OK (skipped=23)"
+      ],
+      "command": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "test_official_codex_quota",
+        "test_official_claude_usage",
+        "test_claude_statusline_quota_020",
+        "test_claude_callback_020",
+        "-v"
+      ],
+      "native_account_service_hardware_or_paid_checks": false
+    },
+    {
+      "group": "funnel",
+      "exit_code": 1,
+      "timed_out": false,
+      "elapsed_seconds": 0.921,
+      "tests_run": 0,
+      "result_lines": [
+        "Ran 0 tests in 0.539s",
+        "FAILED (errors=1)"
+      ],
+      "command": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "test_pocket_funnel_021",
+        "-v"
+      ],
+      "native_account_service_hardware_or_paid_checks": false
+    },
+    {
+      "group": "funnel-cli",
+      "exit_code": 1,
+      "timed_out": false,
+      "elapsed_seconds": 0.812,
+      "tests_run": 0,
+      "result_lines": [
+        "ModuleNotFoundError: No module named 'aiohttp'",
+        "Ran 0 tests in 0.529s",
+        "FAILED (errors=1)"
+      ],
+      "command": [
+        "python",
+        "-B",
+        "test_pocket_funnel_021.py",
+        "--config",
+        "nginx.conf.example"
+      ],
+      "native_account_service_hardware_or_paid_checks": false
+    },
+    {
+      "group": "root-network",
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 37.812,
+      "tests_run": 61,
+      "result_lines": [
+        "Ran 61 tests in 37.065s",
+        "OK"
+      ],
+      "command": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "test_chunk_timing.ChunkTimingTests.test_bind_failure_keeps_original_socket_error",
+        "test_chunk_timing.ChunkTimingTests.test_blocked_log_writer_does_not_delay_next_keepalive_chunk",
+        "test_chunk_timing.ChunkTimingTests.test_delayed_body_is_attributed_to_read",
+        "test_chunk_timing.ChunkTimingTests.test_header_wait_is_separate_from_dispatch",
+        "test_chunk_timing.ChunkTimingTests.test_held_voice_lock_is_attributed_to_lock_wait",
+        "test_chunk_timing.ChunkTimingTests.test_normal_chunk_keeps_wire_response_and_logs_only_numbers",
+        "test_chunk_timing.ChunkTimingTests.test_slow_append_is_attributed_to_execution",
+        "test_chunk_timing.ChunkTimingTests.test_slow_body_write_is_attributed_to_body_write",
+        "test_chunk_timing.ChunkTimingTests.test_slow_headers_are_attributed_to_header_write",
+        "test_chunk_timing.ChunkTimingTests.test_unauthorized_chunk_never_emits_a_row",
+        "test_http.HTTPTests.test_abandon",
+        "test_http.HTTPTests.test_auth",
+        "test_http.HTTPTests.test_bad_inputs",
+        "test_http.HTTPTests.test_owner_and_dedupe",
+        "test_http.HTTPTests.test_result_and_events_after_reconnect",
+        "test_http.HTTPTests.test_stop",
+        "test_http.HTTPTests.test_unavailable_usage_honest",
+        "test_http_nodelay.HTTPNoDelayTests.test_plain_http_accepted_socket_disables_nagle",
+        "test_http_nodelay.HTTPNoDelayTests.test_tls12_accepted_socket_disables_nagle",
+        "test_model_selection.SelectionHTTPTests.test_catalog_is_authenticated_opaque_and_marks_glm_unverified",
+        "test_model_selection.SelectionHTTPTests.test_http_text_retry_and_invalid_selection",
+        "test_model_selection.SelectionHTTPTests.test_legacy_voice_begin_remains_default",
+        "test_model_selection.SelectionHTTPTests.test_voice_v2_begin_validation_and_selection_reaches_text_backend",
+        "test_reply_delivery_http.ReplyDeliveryHTTPTests.test_new_routes_reject_duplicate_keys_extra_fields_and_non_json_values",
+        "test_reply_delivery_http.ReplyDeliveryHTTPTests.test_pages_reconstruct_exact_result_and_ownership_without_refresh",
+        "test_reply_delivery_http.ReplyDeliveryHTTPTests.test_speech_create_generation_status_chunks_cancel_and_legacy_capability",
+        "test_reply_delivery_http.ReplyDeliveryHTTPTests.test_wrong_owner_and_unknown_target_never_expose_generation_metadata",
+        "test_resident_integration.RuntimeHTTPTests.test_status_metadata_is_authenticated_allowlisted_and_does_not_warm",
+        "test_runtime_usage_http.RuntimeUsageHTTPTests.test_authorization_and_route_boundaries_precede_any_runtime_read",
+        "test_runtime_usage_http.RuntimeUsageHTTPTests.test_bounded_local_usage_does_not_overwrite_real_quota_snapshots",
+        "test_runtime_usage_http.RuntimeUsageHTTPTests.test_http_adds_device_scoped_local_counts_while_all_quota_fields_stay_unknown",
+        "test_runtime_usage_http.RuntimeUsageHTTPTests.test_legacy_default_is_exact_and_configured_quota_is_preserved",
+        "test_runtime_usage_http.RuntimeUsageHTTPTests.test_maximum_supported_quota_and_runtime_fields_fit_device_response_limit",
+        "test_runtime_usage_http.RuntimeUsageHTTPTests.test_missing_runtime_source_does_not_break_status_or_chat_readiness",
+        "test_runtime_usage_http.RuntimeUsageHTTPTests.test_oversized_runtime_reply_is_explicit_instead_of_truncated",
+        "test_simulator.SimulatorTests.test_complete_flow",
+        "test_targets.TargetTests.test_chat_routes_stay_separate",
+        "test_targets.TargetTests.test_events_and_device_isolation",
+        "test_targets.TargetTests.test_explicit_target_required",
+        "test_targets.TargetTests.test_failed_target_never_fails_over",
+        "test_targets.TargetTests.test_list_targets",
+        "test_targets.TargetTests.test_stop_is_target_scoped",
+        "test_targets.TargetTests.test_switch_preserves_original",
+        "test_targets.TargetTests.test_unknown_target_never_falls_back",
+        "test_task_view_http.TaskViewHTTPTests.test_completed_empty_result_stays_known_empty",
+        "test_task_view_http.TaskViewHTTPTests.test_control_heavy_result_is_bounded_and_display_safe",
+        "test_task_view_http.TaskViewHTTPTests.test_missing_result_still_enforces_metadata_budget",
+        "test_task_view_http.TaskViewHTTPTests.test_normal_result_remains_unchanged",
+        "test_task_view_http.TaskViewHTTPTests.test_normal_utf8_prefix_remains_unchanged",
+        "test_task_view_http.TaskViewHTTPTests.test_only_unsupported_c0_controls_are_replaced",
+        "test_task_view_http.TaskViewHTTPTests.test_oversized_metadata_returns_bounded_error_and_keeps_run_id",
+        "test_task_view_http.TaskViewHTTPTests.test_running_missing_result_stays_null",
+        "test_task_view_http.TaskViewHTTPTests.test_wire_budget_includes_handoff_without_changing_metadata",
+        "test_transport_diagnostic.ExistingHTTPIntegrationTests.test_disarmed_post_is_rejected_before_body_read",
+        "test_transport_diagnostic.ExistingHTTPIntegrationTests.test_existing_auth_then_default_closed_before_route_or_body",
+        "test_transport_diagnostic.ExistingHTTPIntegrationTests.test_raw_framing_rejected_without_waiting_for_missing_body",
+        "test_transport_diagnostic.ExistingHTTPIntegrationTests.test_slow_fragments_cannot_extend_absolute_deadline",
+        "test_usage_http.UsageHTTPTests.test_expired_and_failed_observations_are_not_returned_as_fresh",
+        "test_usage_http.UsageHTTPTests.test_target_scoped_report_preserves_units_nulls_and_fixed_provider_order",
+        "test_usage_http.UsageHTTPTests.test_usage_keeps_auth_target_and_read_only_route_boundaries",
+        "test_voice_http.VoiceHTTPTests.test_device_sized_pcm_roundtrip_and_keepalive",
+        "-v"
+      ],
+      "native_account_service_hardware_or_paid_checks": false
+    },
+    {
+      "group": "setup-ui",
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 0.609,
+      "tests_run": 2,
+      "result_lines": [
+        "Ran 2 tests in 0.357s",
+        "OK"
+      ],
+      "command": [
+        "python",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_firmware_setup_ui.py",
+        "-v"
+      ],
+      "native_account_service_hardware_or_paid_checks": false
+    }
+  ],
+  "interpretation": [
+    "Initial root suite: 394 tests, 61 errors, 19 skips. Most errors were sandbox WinError10013 when binding synthetic loopback fixtures; failures are preserved, not hidden.",
+    "Only the 61 failed tests were selected for one bounded retry with loopback access.",
+    "Quota producer/callback suite: 139 tests, OK with23 platform skips; this is synthetic evidence, not a native account feed.",
+    "The first Funnel attempt used unittest import although this preserved harness requires CLI arguments; that invocation error is recorded separately.",
+    "The corrected CLI attempt is blocked by missing aiohttp; no dependency was installed and no live endpoint was probed.",
+    "Selected Python source was syntax parsed during the privacy scan."
+  ],
+  "not_run": [
+    "ESP-IDF firmware build, flash, hardware/serial/LCD acceptance or voice/model canary",
+    "Linux-native PTY/Unix-socket/account-client qualification and callback acceptance",
+    "Guarded quota operations suites that require omitted private acceptance receipts",
+    "nginx executable integration and live ingress/service restoration",
+    "Legacy draft patches as an integrated application"
+  ],
+  "historical_connecting_evidence": "19 real-C voice tests passed on19 October; the current complete root run is reported separately above.",
+  "privacy_scan": "Exact staged-file scan required before commit; no matching secret values are printed.",
+  "diff_check": "Application/source whitespace check excludes archived unified-diff patches, whose blank context lines must retain their leading space.",
+  "deployment_or_live_configuration_changed": false
+}

@@ -1,0 +1,134 @@
+--- a/pocket/server.py
++++ b/pocket/server.py
+@@ -3,16 +3,22 @@
+ import hmac
+ import json
+ import socket
+-from http.server import BaseHTTPRequestHandler, HTTPServer
++import ssl
++import threading
++from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
+ from urllib.parse import urlsplit, parse_qs
+ from .schema import decode, ProtocolError, MAX_FRAME, identifier
+ from .store import Store, Conflict, NotFound, InvalidTransition
+ from .service import Service, FakeHermes
+ from .chat import ChatService
++from .audio import AudioError
++from .voice_jobs import VoiceJobs
++from .linux_voice import decode_speech_pcm
++from .transport import unique
+ 
+ 
+-def make_server(service,tokens,*,host='127.0.0.1',port=0):
+-    if host!='127.0.0.1':raise ValueError('development bridge is loopback-only')
++def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,decoder=decode_speech_pcm):
++    if host!='127.0.0.1' and (not tls or host in ('0.0.0.0','::')):raise ValueError('LAN ingress requires TLS and a specific interface address')
+     if not tokens or any(not isinstance(k,str) or not k for k in tokens):raise ValueError('authentication required')
+     # Multi-target mode has no implicit default or mutable global selection.
+     targets=dict(service) if isinstance(service,dict) else {'default':service}
+@@ -26,12 +32,14 @@
+         if identity in identities:raise ValueError('each target requires a separate database')
+         identities.add(identity)
+     chats={name:ChatService(svc) for name,svc in targets.items()}
++    voices={name:VoiceJobs(chat,(speech or {}).get(name),decode=decoder) for name,chat in chats.items()}
+     tokens=dict(tokens)
+     for device in tokens.values():identifier(device)
+     class Handler(BaseHTTPRequestHandler):
+         def log_message(self,*args):pass # No paths, headers or content in logs.
+         def setup(self):
+             super().setup();self.connection.settimeout(3)
++            if isinstance(self.connection,ssl.SSLSocket):self.connection.do_handshake()
+         def respond(self,code,value):
+             body=json.dumps(value,ensure_ascii=False,allow_nan=False).encode()
+             self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8')
+@@ -54,7 +62,7 @@
+                 if len(raw)!=length:return self.respond(400,{'error':'incomplete body'})
+                 parsed=urlsplit(self.path);parts=parsed.path.strip('/').split('/')
+                 if self.command=='GET' and parsed.path=='/health':
+-                    return self.respond(200,{'bridge':'ready','backend':'fake' if all(isinstance(s.backend,FakeHermes) for s in targets.values()) else 'hermes','production_ready':False})
++                    return self.respond(200,{'bridge':'ready','backend':'fake' if all(isinstance(s.backend,FakeHermes) for s in targets.values()) else 'hermes','production_ready':bool(tls)})
+                 if self.command=='GET' and parsed.path=='/targets':
+                     return self.respond(200,{'targets':list(targets),'default_target':'default' if legacy else None})
+                 route=parsed.path
+@@ -65,6 +73,23 @@
+                     parts=parts[2:];route='/'+('/'.join(parts))
+                 elif legacy:target='default';selected=targets[target]
+                 else:return self.respond(400,{'error':'explicit target required'})
++                if self.command=='GET' and route=='/status':
++                    try:
++                        selected.backend.check() if hasattr(selected.backend,'check') else None
++                        available=True
++                    except Exception:available=False
++                    return self.respond(200,{'target':target,'backend':'available' if available else 'unavailable','voice':voices[target].capabilities()})
++                if len(parts)>=2 and parts[0]=='audio':
++                    capture_id=identifier(parts[1]);voice=voices[target]
++                    if len(parts)==2 and self.command=='GET':return self.respond(200,voice.status(device,capture_id))
++                    if self.command=='POST':
++                        data=json.loads(raw,object_pairs_hook=unique)
++                        if not isinstance(data,dict):raise ProtocolError('invalid audio request')
++                        if len(parts)==2 and set(data)=={'chat_id'}:return self.respond(201,voice.begin(device,target,capture_id,identifier(data['chat_id'])))
++                        if len(parts)==3 and parts[2]=='chunk' and set(data)=={'sequence','data'}:return self.respond(200,voice.chunk(device,capture_id,data['sequence'],data['data']))
++                        if raw==b'{}' and len(parts)==3 and parts[2]=='finish':return self.respond(202,voice.finish(device,capture_id))
++                        if raw==b'{}' and len(parts)==3 and parts[2]=='abort':return self.respond(200,voice.abort(device,capture_id))
++                        raise ProtocolError('unsupported audio request')
+                 if len(parts)==3 and parts[0]=='chats' and parts[2]=='messages':
+                     chat_id=identifier(parts[1])
+                     if self.command=='POST':return self.respond(202,chats[target].submit(device,chat_id,decode(raw)))
+@@ -73,8 +98,25 @@
+                     return self.respond(200,[{'provider':p,'availability':'not_configured','value':None,'fetched_at':None,'source':None} for p in ('codex','claude','ollama_cloud')])
+                 if self.command=='POST' and route=='/tasks':
+                     return self.respond(202,selected.submit(device,decode(raw)))
++                if self.command=='GET' and route=='/tasks':
++                    with selected.store.lock:
++                        rows=list(selected.store.db.execute('SELECT request_id,state,seq FROM tasks WHERE device=? ORDER BY rowid DESC LIMIT 12',(device,)))
++                    return self.respond(200,[dict(r) for r in rows])
+                 if len(parts)>=2 and parts[0]=='tasks':
+                     rid=identifier(parts[1])
++                    if len(parts)==3 and parts[2]=='view' and self.command=='GET':
++                        task=selected.refresh(device,rid)
++                        text=task.get('result') or ''
++                        task['result']=text.encode()[:3000].decode('utf-8',errors='ignore')
++                        task['truncated']=len(text.encode())>3000
++                        if hasattr(selected.backend,'handoff') and task['run_id'] and task['state'] in ('awaiting_approval','unknown'):
++                            task['handoff']=selected.backend.handoff(task['run_id'])
++                        return self.respond(200,task)
++                    if len(parts)==3 and parts[2]=='speech':
++                        if self.command=='POST' and raw==b'{}':return self.respond(202,voices[target].speak(device,rid))
++                        if self.command=='GET':return self.respond(200,voices[target].speech_status(device,rid))
++                    if len(parts)==5 and parts[2:4]==['speech','chunks'] and self.command=='GET':
++                        return self.respond(200,voices[target].playback_chunk(device,rid,int(parts[4])))
+                     if len(parts)==2 and self.command=='GET':return self.respond(200,selected.refresh(device,rid))
+                     if len(parts)==3 and parts[2]=='events' and self.command=='GET':
+                         q=parse_qs(parsed.query);values=q.get('after',['0'])
+@@ -94,8 +136,29 @@
+             except Exception:self.respond(502,{'error':'backend unavailable'})
+         do_GET=dispatch
+         do_POST=dispatch
+-    # Serial server bounds request concurrency for this development milestone.
+-    return HTTPServer((host,port),Handler)
++    class BoundedServer(ThreadingHTTPServer):
++        daemon_threads=True
++        def __init__(self,*args):
++            self.slots=threading.BoundedSemaphore(8)
++            super().__init__(*args)
++        def process_request(self,request,address):
++            if not self.slots.acquire(blocking=False):
++                self.shutdown_request(request);return
++            try:super().process_request(request,address)
++            except BaseException:self.slots.release();raise
++        def process_request_thread(self,request,address):
++            try:super().process_request_thread(request,address)
++            finally:self.slots.release()
++        def server_close(self):
++            super().server_close()
++            for voice in voices.values():voice.close()
++    server=BoundedServer((host,port),Handler)
++    if tls:
++        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
++        context.minimum_version=ssl.TLSVersion.TLSv1_2
++        context.load_cert_chain(tls['certificate'],tls['private_key'])
++        server.socket=context.wrap_socket(server.socket,server_side=True,do_handshake_on_connect=False)
++    return server
+ 
+ 
+ def main():

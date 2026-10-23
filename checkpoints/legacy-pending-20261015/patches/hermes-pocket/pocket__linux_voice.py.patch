@@ -1,0 +1,27 @@
+--- a/pocket/linux_voice.py
++++ b/pocket/linux_voice.py
+@@ -34,19 +34,21 @@
+     for an explicit loopback origin when the bridge runs on the same Linux host.
+     Redirects and automatic POST retries are disabled.
+     """
+-    def __init__(self,origin,token,*,opener=None):
++    def __init__(self,origin,token,*,opener=None,auth_header='Authorization'):
+         parsed=urlsplit(origin)
+         local=parsed.hostname in ('127.0.0.1','::1','localhost')
+         if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ('','/') or not (parsed.scheme=='https' or parsed.scheme=='http' and local):
+             raise ValueError('verified HTTPS or explicit loopback origin required')
+         if not isinstance(token,str) or not token or any(ord(c)<33 or ord(c)>126 for c in token):raise ValueError('invalid dashboard credential')
+-        self.origin=origin.rstrip('/');self._token=token
++        if auth_header not in ('Authorization','X-Hermes-Session-Token'):raise ValueError('unsupported dashboard authentication')
++        self.origin=origin.rstrip('/');self._token=token;self.auth_header=auth_header
+         self.opener=opener or urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect(),urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+     def __call__(self,path,body):
+         if path not in ('/api/audio/transcribe','/api/audio/speak'):raise AudioError('unsupported speech route')
+         raw=json.dumps(body,ensure_ascii=False,allow_nan=False).encode()
+         if len(raw)>1400000:raise AudioError('speech request too large')
+-        request=urllib.request.Request(self.origin+path,data=raw,method='POST',headers={'Authorization':'Bearer '+self._token,'Content-Type':'application/json','Accept':'application/json'})
++        credential='Bearer '+self._token if self.auth_header=='Authorization' else self._token
++        request=urllib.request.Request(self.origin+path,data=raw,method='POST',headers={self.auth_header:credential,'Content-Type':'application/json','Accept':'application/json'})
+         try:
+             with self.opener.open(request,timeout=60) as response:
+                 if response.status!=200:raise AudioError('unexpected speech status')

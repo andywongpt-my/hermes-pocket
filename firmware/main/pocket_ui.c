@@ -496,10 +496,12 @@ void pocket_ui_render(const pocket_ui_view *v) {
   lv_label_set_text(footer,v->busy?"OK: stop\nUP/DOWN: pages":"OK: next  Hold: use\nUP/DOWN: cancel/back");return;
  }
  if(v->page==POCKET_STATUS){
-  set_badge(v->alert_pending?"USAGE ALERT":v->online?"HERMES ONLINE":"HERMES POCKET",v->alert_pending?AMBER:v->online?MINT:SLATE,154);
+  const bool stale=v->diagnostics&&v->diagnostics->checked&&
+   (v->uptime_ms<v->diagnostics->checked_ms||v->uptime_ms-v->diagnostics->checked_ms>=45000);
+  set_badge(v->alert_pending?"USAGE ALERT":stale?"STATUS STALE":v->online?"HERMES ONLINE":"HERMES POCKET",v->alert_pending||stale?AMBER:v->online?MINT:SLATE,154);
   set_row(0,"Wi-Fi",v->wifi_connected?"Connected":"Offline",v->wifi_connected?MINT:CORAL);
-  set_row(1,"Hermes",v->online?"Available":"Offline",v->online?MINT:CORAL);
-  set_row(2,"Voice",v->speech_ready?"Ready":"Needs setup",v->speech_ready?MINT:AMBER);show_rows(182);
+  set_row(1,"Hermes",stale?"Cached":v->online?"Available":"Offline",stale?AMBER:v->online?MINT:CORAL);
+  set_row(2,"Voice",stale?"Check status":v->speech_ready?"Ready":"Needs setup",stale?AMBER:v->speech_ready?MINT:AMBER);show_rows(182);
   home_footer(v);return;
  }
  if(v->page==POCKET_DIAGNOSTICS){

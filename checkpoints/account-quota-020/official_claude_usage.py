@@ -24,7 +24,7 @@ import unicodedata
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
-NATIVE_COMMAND = ("/opt/pocket-checkpoint/owner/.npm-global/bin/claude", "--safe-mode", "--ax-screen-reader")
+NATIVE_COMMAND = ("/home/example/.npm-global/bin/claude", "--safe-mode", "--ax-screen-reader")
 WINDOWS = (("Current session", "five_hour", 300),
            ("Current week (all models)", "seven_day", 10080))
 SAFE_ERRORS = frozenset({"unsupported_platform", "spawn_failed", "io_failed", "startup_timeout",

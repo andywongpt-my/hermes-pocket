@@ -1,64 +1,72 @@
-# Consolidated source checkpoint
+# Complete source checkpoint — 23 October 2026
 
-18 October 2026; branch `checkpoint/source-20261018`.
-Base public main: `dbf526a1a3a9bc1e17b082125e1dff463895213e`.
-Selected source is consolidated in a new commit; private worktree histories are
-not uploaded. Original worktrees and unrelated scratch files are preserved.
+Branch: `checkpoint/all-project-work-20261023`.
+Base: published `checkpoint/source-20261018`,
+`e0e7df6efb3cdcbdf460d23b1928e4b103ccf1c7`.
+The existing main branch and PR #3 are preserved. This is a source snapshot,
+not a release, deployment, device operation, or proof of a live account feed.
 
-## Firmware evidence boundary
+## Included source
 
-Delivered/restored source: `2eabc4600d6dc6fc2c2033870ab7121b4e3b0bb4`, including
-recorded Pocket-run Usage, bounded full text, segmented speech, CJK font,
-playback drain and standby work. Its previous application was restored and
-verified after the later Wi-Fi failure. No new device observation occurs here.
+* Root bridge remains the consolidated bridge018R2 source already published.
+* Firmware advances to the delivered Wi-Fi/clock/Funnel and display-power source
+  at `e82f04a5c70384dbf4c99cd88fd9758d06bda1a0`, with the additional one-line
+  pre-recording early-release correction and three real-C regression cases.
+  The correction restores an actionable prompt after release while audio begin
+  is in flight. Cleanup, cancellation feedback and authorization errors remain.
+* The quota checkpoint includes the later Codex native producer/supervisor,
+  qualification and guarded operations source; Claude passive observer,
+  status-line adapter, callback, settings helper and installation controller;
+  and their synthetic tests. Private acceptance receipts are intentionally absent.
+* The temporary Funnel checkpoint preserves the Python ingress, route/auth/TLS
+  tests and inert nginx example. Endpoints and owner paths are examples.
+* Unique legacy diagnostic source, draft patches and design plans are retained
+  outside the application. Superseded drafts are not silently applied over the
+  newer consolidated implementation.
+* Serial parsers and the bounded capture script are published for reproduction.
+  They were not run as part of this publication. The capture script explicitly
+  opens its configured port only when an owner chooses to run it; opening may reset
+  a connected device. No raw serial input is saved by its filter.
 
-Root firmware: `556e897543517aebd517ea8621767f9f3cd28ef2` plus the local
-initial-disconnect patch and tests. Candidate `556e897` booted and imported the
-legacy network read-only but failed to connect. Its physical trace showed a
-pre-connect barrier failure, without a numeric driver return. The boundary
-defect was reproduced in real C using an SDK-faithful fake.
+## Evidence boundaries
 
-`esp_wifi_disconnect()` may succeed while unassociated without promising a
-disconnect event. The old adapter interpreted all successes as future callbacks.
-The old fake returned the explicit disconnected error whenever idle, bypassing
-the faulty barrier in ordinary boot tests. The correction queries association
-before disconnect, keeps the callback barrier for live associations and fails
-closed on unexpected query errors. The fake now defaults to idle success with
-no event. Corrected hardware acceptance, multi-network fallback and clock checks
-remain open. A host pass does not prove the physical Wi-Fi defect fixed.
+Historical delivered application SHA-256:
+`06ad762fad032d9590e5a19d10c37ad2a71b51510c6257bf1c963c1a91af4761`.
+Historical ELF SHA-256:
+`f81182f9b2baddf9728a0a4e734c4512df348c95bdcd02d36119817eedb359f5`.
+The owner-authorized 19 October capture observed ELF prefix `f81182f9b`, one USB
+reset marker, and the selected Linux view `wifi=1, online=1, speech_ready=1` after
+successful status parsing. A nine-hex prefix is not a complete binary readback.
+The capture omitted screen text and busy/held-key state and contained no voice
+request diagnostics. It does not prove the early-release defect caused that
+device's stuck screen. The Connecting correction remains unflashed.
 
-## Backend evidence boundary
+The Claude callback was installed on 19 October in separate authorized work;
+61 native Linux fixture tests passed then. These are fixture tests, not evidence
+of a usable owner quota snapshot. A normal owner Claude Code response is still
+needed for a native sample. Direct-SDK Hermes callback triggering was unverified.
+No callback, account client or model is invoked by this checkpoint publication.
 
-Root `pocket/`, `helpers/` and backend tests come from frozen **bridge018R2**,
-previously deployed. Original sorted source-map SHA-256:
-`a957beb7bab172d9b85f46ce77c57b285fa5eeffe5cd8388ae4b9fbef5ad0d71`.
-Device firmware and `test_firmware_host.py` come from the firmware owner, not the
-backend's small firmware smoke-test copy. No running service is probed or changed.
+## Latest reported service state
 
-**quota020R3** is isolated in `checkpoints/account-quota-020/backend/`.
-Original sorted source-map SHA-256:
-`37442dc244c2aeb0075d80f151bfadb0017d4b7b0f310930dca2a34d1b94b419`.
-Account snapshots/export and HTTP integration are undeployed, with no automatic
-refresh activated. Claude/Ollama collectors and guarded operations are unfinished
-source. No fresh usable quota feed or account binding is claimed. The Codex
-producer is missing; pending contract tests are kept outside passing suites.
+A separate read-only check reported at **23 October 2026, 15:59 UTC**:
+the Pocket backend was inactive, the temporary Funnel unit was absent, and the
+public entry returned HTTP 502. General Hermes remained running. No repair was
+made. This later outage supersedes the older successful service observations;
+publishing source does not restore services. Private endpoints and raw logs are
+not included, and this publication did not repeat that live check.
 
-Operations paths, hostnames and endpoints use inert example values. Private
-acceptance records, runtime settings and deployment receipts are excluded;
-operations are not a deployable bundle. No account client, provider, SSH,
-service manager or paid request is invoked by publication. Funnel is unconfigured.
+## Verification and exclusions
 
-## Publication contents
+Current results and unrun checks are in [CHECKPOINT-CHECKS-20261023.json](CHECKPOINT-CHECKS-20261023.json).
+Selected source provenance is in [SOURCE-PROVENANCE-20261023.json](SOURCE-PROVENANCE-20261023.json).
+Earlier `VERIFICATION.md`, `CHECKPOINT-CHECKS.json`, and `SOURCE-PROVENANCE.json`
+are historical records of the 18 October checkpoint, not current verification.
 
-Included: application/BSP/font source and licenses, bridge code, synthetic tests,
-unfinished quota source, and public protocol/design/status documentation.
-Generated C font tables are application source, not flash images.
-
-Excluded: secrets and pairing/owner configuration, private TLS material,
-environment files, real audio/transcripts/replies, raw logs, numeric account
-observations, deployment identities/addresses, SDK/dependency caches, build
-images/archives, host-specific upload/staging harnesses and untracked scratch
-plans. Placeholder and fixture strings are synthetic. Original histories are
-left local rather than published with their private deployment notes.
-
-Actual results and unrun checks: [verification](VERIFICATION.md).
+Excluded: credentials and account identities, owner settings and pairing data,
+private keys/certificates, environment files, acceptance/deployment receipts,
+raw logs or network captures, real quota observations, audio/chat/transcripts,
+build binaries/archives, SDK/dependency caches, and one-off host deployment input
+bundles. Inert documentation addresses and synthetic fixture credentials remain.
+Local originals and private branch history are preserved; only selected source
+is committed on top of the already published checkpoint.

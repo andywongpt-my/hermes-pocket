@@ -300,7 +300,10 @@ esp_err_t esp_wifi_connect(void) { radio_call();connects++;return ESP_OK; }
 /* IDF may return ESP_OK while already idle, without a disconnect callback. */
 esp_err_t esp_wifi_disconnect(void) { radio_call();disconnects++;return !association_live&&disconnect_not_connect_while_idle?ESP_ERR_WIFI_NOT_CONNECT:ESP_OK; }
 esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *out) { radio_call();if(ap_query_error!=ESP_OK)return ap_query_error;if(!association_live)return ESP_ERR_WIFI_NOT_CONNECT;memset(out,0,sizeof *out);memcpy(out->ssid,applied_sta.sta.ssid,32);return ESP_OK; }
-esp_err_t esp_wifi_scan_start(const wifi_scan_config_t *c,bool block) { (void)c;(void)block;radio_call();scans++;return ESP_OK; }
+static bool enqueue_during_scan;
+static int scan_enqueue_status;
+static void queued_scan_callback(void);
+esp_err_t esp_wifi_scan_start(const wifi_scan_config_t *c,bool block) { (void)c;(void)block;radio_call();scans++;queued_scan_callback();return ESP_OK; }
 esp_err_t esp_wifi_scan_get_ap_num(uint16_t *out) { radio_call();*out=scan_count;return ESP_OK; }
 esp_err_t esp_wifi_scan_get_ap_records(uint16_t *count,wifi_ap_record_t *out) { radio_call();if(*count>scan_count)*count=scan_count;memcpy(out,scan_records,*count*sizeof *out);return ESP_OK; }
 esp_err_t esp_wifi_clear_ap_list(void) { radio_call();return ESP_OK; }
@@ -374,14 +377,14 @@ static bool no_secrets(void) { return !strstr(response,"password")&&!strstr(resp
 static cJSON *status_json(void) { if(authorized(wifi_status,"/wifi/status",NULL)!=200)return NULL;return cJSON_Parse(response); }
 static int status_contract(void) {
  cJSON *json=status_json();CHECK(json&&cJSON_IsObject(json),"status was not a JSON object");
- const char *keys[]={"connected","ssid","connection","join_result","operation","capacity","profiles","scan_state","networks","pairing_saved","store_writable","expires_seconds"};
- CHECK(cJSON_GetArraySize(json)==12,"status has missing or private fields");
+ const char *keys[]={"connected","ssid","connection","join_result","operation","capacity","profiles","scan_state","networks","pairing_saved","store_writable","expires_seconds","connection_busy"};
+ CHECK(cJSON_GetArraySize(json)==(int)(sizeof keys/sizeof *keys),"status has missing or private fields");
  for(unsigned i=0;i<sizeof keys/sizeof *keys;i++)CHECK(cJSON_GetObjectItemCaseSensitive(json,keys[i]),"status field missing");
  cJSON *capacity=cJSON_GetObjectItemCaseSensitive(json,"capacity"),*connection=cJSON_GetObjectItemCaseSensitive(json,"connection"),*join=cJSON_GetObjectItemCaseSensitive(json,"join_result");
  CHECK(cJSON_IsNumber(capacity)&&capacity->valueint==5,"status capacity not five");
  CHECK(cJSON_IsNumber(connection)&&connection->valueint>=0&&connection->valueint<=7,"status connection not numeric public enum");
  CHECK(cJSON_IsNumber(join)&&join->valueint>=0&&join->valueint<=7,"status join result not numeric public enum");
- CHECK(cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(json,"connected"))&&cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(json,"pairing_saved"))&&cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(json,"store_writable")),"status public flags not booleans");
+ CHECK(cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(json,"connected"))&&cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(json,"pairing_saved"))&&cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(json,"store_writable"))&&cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(json,"connection_busy")),"status public flags not booleans");
  CHECK(cJSON_IsString(cJSON_GetObjectItemCaseSensitive(json,"ssid")),"status SSID not a string");
  cJSON *operation=cJSON_GetObjectItemCaseSensitive(json,"operation"),*scan=cJSON_GetObjectItemCaseSensitive(json,"scan_state"),*seconds=cJSON_GetObjectItemCaseSensitive(json,"expires_seconds");
  CHECK(cJSON_IsNumber(operation)&&operation->valueint>=0&&cJSON_IsNumber(scan)&&scan->valueint>=0&&scan->valueint<=3,"status operation or scan state invalid");
@@ -391,6 +394,26 @@ static int status_contract(void) {
  for(cJSON *item=profiles->child;item;item=item->next)CHECK(cJSON_IsObject(item)&&cJSON_GetArraySize(item)==2&&cJSON_IsString(cJSON_GetObjectItemCaseSensitive(item,"ssid"))&&cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(item,"connected")),"profile record contains private fields or invalid types");
  CHECK(no_secrets(),"status exposed a stored credential or pairing field");cJSON_Delete(json);return 0;
 }
+
+static void add_saved(const char *ssid);
+static bool queue_contains(const char *text);
+static void queued_scan_callback(void) {
+ if(!enqueue_during_scan)return;enqueue_during_scan=false;
+ scan_enqueue_status=authorized(wifi_join,"/wifi/join","{\"ssid\":\"Synthetic During Scan\",\"password\":\"during-scan-fixture\"}");
+}
+static int queued_join_cleanup(void) {
+ pocket_wifi_book_init(&loaded_book);load_result=POCKET_WIFI_STORE_OK;add_saved("Synthetic Automatic");
+ CHECK(!initialize(),"queued-join saved boot failed");
+ ap_query_error=ESP_FAIL;enqueue_during_scan=true;open_window();
+ CHECK(scan_enqueue_status==202&&public_state.pending&&pocket_wifi_attempting(&engine),"candidate did not queue before cleanup publication");
+ unsigned operation=public_state.operation;step(false,clock_us+1000);
+ CHECK(!queue_data.count&&!pending_operation&&!public_state.pending,"rejected queued candidate retained pending state");
+ CHECK(public_state.operation==operation&&public_state.join_result==POCKET_WIFI_JOIN_FAILED,"accepted queued join lost terminal failure when STOPPING rejected it");
+ CHECK(!connects&&!profile_saves,"cleanup-rejected join changed radio or storage");
+ CHECK(!status_contract()&&!queue_contains("during-scan-fixture"),"cleanup-rejected join exposed credentials");
+ return 0;
+}
+
 static int guards(void) {
  CHECK(!boot(),"boot prerequisite failed");
  CHECK(request(page,"/",NULL,1,NULL)==403,"inactive page accepted");
@@ -603,6 +626,28 @@ static int legacy_query_error_recovery(void) {
  CHECK(engine.connection==POCKET_WIFI_CONNECTED&&!profile_saves&&!pair_updates&&!ap_starts,"station query recovery failed or changed stored settings");
  CHECK(!queue_contains("legacy-secret-fixture")&&!strstr(logs,"secret"),"station query recovery exposed credentials");return 0;
 }
+
+static int outstanding_cancel_cleanup(void) {
+ pocket_wifi_book_init(&loaded_book);CHECK(!initialize(),"boot prerequisite failed");open_window();
+ CHECK(authorized(wifi_join,"/wifi/join","{\"ssid\":\"Synthetic Retired\",\"password\":\"synthetic-first-password\"}")==202,"first attempt rejected");
+ step(false,clock_us+1000);
+ CHECK(connects==1&&engine.testing&&!association_live,"first request was not in flight before association");
+ CHECK(authorized(wifi_control,"/wifi/cancel","{}")==202,"cancel rejected");step(false,clock_us+1000);
+ CHECK(pocket_wifi_attempting(&engine),"unassociated pending connect was declared retired without its disconnect event");
+ pocket_wifi_profile replacement={0};snprintf(replacement.ssid,sizeof replacement.ssid,"Synthetic Retired");snprintf(replacement.password,sizeof replacement.password,"synthetic-second-password");
+ pocket_wifi_snapshot current=snapshot();
+ CHECK(!pocket_wifi_join(&engine,&replacement,clock_us/1000,&current),"new candidate overwrote terminal cleanup");
+ CHECK(authorized(wifi_join,"/wifi/join","{\"ssid\":\"Synthetic Retired\",\"password\":\"synthetic-second-password\"}")==400,"phone accepted a candidate during terminal cleanup");
+ associate("Synthetic Retired");got_ip();step(false,clock_us+1000);
+ CHECK(!profile_saves&&pocket_wifi_attempting(&engine),"cancelled callbacks admitted a credential save");
+ association_live=false;wifi_event(NULL,WIFI_EVENT,WIFI_EVENT_STA_DISCONNECTED,NULL);step(false,clock_us+1000);
+ CHECK(!pocket_wifi_attempting(&engine)&&!profile_saves,"fresh disconnect did not retire the cancelled attempt");
+ CHECK(authorized(wifi_join,"/wifi/join","{\"ssid\":\"Synthetic Retired\",\"password\":\"synthetic-second-password\"}")==202,"replacement was not accepted after cleanup");
+ step(false,clock_us+1000);associate("Synthetic Retired");got_ip();step(false,clock_us+1000);
+ CHECK(profile_saves==1&&engine.book.count==1&&!strcmp(engine.book.profiles[0].password,"synthetic-second-password"),"fresh replacement association/IP was not saved");
+ CHECK(!strstr(logs,"synthetic-first-password")&&!strstr(logs,"synthetic-second-password"),"credentials reached diagnostics");return 0;
+}
+
 static int first_join_late_events(bool timeout,bool delayed_ack) {
  CHECK(!boot(),"boot prerequisite failed");open_window();
  CHECK(authorized(wifi_join,"/wifi/join","{\"ssid\":\"Synthetic First Race\",\"password\":\"first-race-secret-fixture\"}")==202,"first candidate was not queued");
@@ -737,6 +782,7 @@ int main(int argc,char **argv) {
  if(!strcmp(name,"boot"))result=boot();
 #ifndef POCKET_SETUP_BASELINE
  else if(!strcmp(name,"guards"))result=guards();
+ else if(!strcmp(name,"queued-join-cleanup"))result=queued_join_cleanup();
  else if(!strcmp(name,"ownership"))result=ownership();
  else if(!strcmp(name,"join"))result=join_events();
  else if(!strcmp(name,"expiry"))result=expiry();
@@ -752,6 +798,7 @@ int main(int argc,char **argv) {
  else if(!strcmp(name,"automatic"))result=automatic_ownership();
  else if(!strcmp(name,"legacy-idle-disconnect-ok")||!strcmp(name,"legacy-idle-disconnect-not-connect"))result=legacy_idle_disconnect_ok(!strcmp(name,"legacy-idle-disconnect-not-connect"));
  else if(!strcmp(name,"legacy-query-error-recovery"))result=legacy_query_error_recovery();
+ else if(!strcmp(name,"outstanding-cancel-cleanup"))result=outstanding_cancel_cleanup();
  else if(!strcmp(name,"first-join-cancel-race")||!strcmp(name,"first-join-timeout-race")||!strcmp(name,"first-join-delayed-cleanup-race"))result=first_join_late_events(!strcmp(name,"first-join-timeout-race"),!strcmp(name,"first-join-delayed-cleanup-race"));
  else if(!strcmp(name,"disconnect-new-race")||!strcmp(name,"disconnect-replace-race"))result=disconnected_candidate_late_ip(!strcmp(name,"disconnect-replace-race"));
  else if(!strcmp(name,"forget-pending-race"))result=repeated_forget_pending();
@@ -798,7 +845,7 @@ class FirmwareSetupTests(unittest.TestCase):
         built = subprocess.run([
             compiler, '-std=c11', '-Wall', '-Wextra', '-Werror', '-pedantic', '-Wno-overlength-strings', '-DESP_PLATFORM=1', *options,
             '-I'+str(temp), '-I'+str(root/'firmware/main'), '-I'+str(root/'firmware/core'), '-I'+str(cjson),
-            str(fixture), str(root/'firmware/core/pocket_wifi.c'), str(cjson/'cJSON.c'), '-o', str(cls.binary),
+            str(fixture), str(root/'firmware/core/pocket_wifi.c'), str(root/'firmware/main/pocket_linux_link.c'), str(cjson/'cJSON.c'), '-o', str(cls.binary),
         ], capture_output=True, text=True, timeout=60)
         if built.returncode:
             raise AssertionError('native setup harness did not compile:\n'+built.stdout+built.stderr)
@@ -810,6 +857,9 @@ class FirmwareSetupTests(unittest.TestCase):
 
     def test_unconfigured_boot_does_not_open_setup(self):
         self.exercise('boot')
+
+    def test_queued_join_reports_failure_if_cleanup_rejects_admission(self):
+        self.exercise("queued-join-cleanup")
 
     def test_ap_nonce_guards_and_public_status(self):
         self.exercise('guards')
@@ -859,6 +909,9 @@ class FirmwareSetupTests(unittest.TestCase):
         for name in ('legacy-idle-disconnect-ok', 'legacy-idle-disconnect-not-connect'):
             with self.subTest(scenario=name):
                 self.exercise(name)
+
+    def test_cancelled_unassociated_request_requires_retirement_before_replacement(self):
+        self.exercise("outstanding-cancel-cleanup")
 
     def test_legacy_boot_station_query_error_fails_closed_and_recovers(self):
         self.exercise('legacy-query-error-recovery')

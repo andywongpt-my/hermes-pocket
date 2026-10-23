@@ -1,0 +1,83 @@
+# Temporary Pocket entry only. Existing nginx/Tailscale services are independent.
+daemon off;
+master_process off;
+worker_processes 1;
+pid /home/example/.hermes/pocket/temporary-funnel-021/nginx.pid;
+error_log /dev/null crit;
+events { worker_connections 128; }
+http {
+    access_log off;
+    server_tokens off;
+    client_body_temp_path /home/example/.hermes/pocket/temporary-funnel-021/body;
+    proxy_temp_path /home/example/.hermes/pocket/temporary-funnel-021/proxy;
+    fastcgi_temp_path /home/example/.hermes/pocket/temporary-funnel-021/fastcgi;
+    uwsgi_temp_path /home/example/.hermes/pocket/temporary-funnel-021/uwsgi;
+    scgi_temp_path /home/example/.hermes/pocket/temporary-funnel-021/scgi;
+    map "$request_method:$request_uri" $pocket_route_allowed {
+        default 0;
+        "~^GET:/(?:health|targets)$" 1;
+        "~^GET:(?:/targets/linux)?/(?:status|models|usage|tasks)$" 1;
+        "~^GET:(?:/targets/linux)?/tasks/[A-Za-z0-9_-]{1,64}(?:/view|/speech)?$" 1;
+        "~^GET:(?:/targets/linux)?/tasks/[A-Za-z0-9_-]{1,64}/events(?:\?after=[0-9]{1,20})?$" 1;
+        "~^GET:(?:/targets/linux)?/tasks/[A-Za-z0-9_-]{1,64}/result/pages(?:\?cursor=[A-Za-z0-9_-]{47})?$" 1;
+        "~^GET:(?:/targets/linux)?/tasks/[A-Za-z0-9_-]{1,64}/speech/chunks/[0-9]{1,3}$" 1;
+        "~^GET:(?:/targets/linux)?/tasks/[A-Za-z0-9_-]{1,64}/speech/v2\?generation=[a-f0-9]{32}$" 1;
+        "~^GET:(?:/targets/linux)?/tasks/[A-Za-z0-9_-]{1,64}/speech/v2/segments/[0-9]{1,2}/chunks/[0-9]{1,3}\?generation=[a-f0-9]{32}$" 1;
+        "~^GET:(?:/targets/linux)?/(?:audio/[A-Za-z0-9_-]{1,64}|chats/[A-Za-z0-9_-]{1,64}/messages)$" 1;
+        "~^POST:(?:/targets/linux)?/tasks$" 1;
+        "~^POST:(?:/targets/linux)?/tasks/[A-Za-z0-9_-]{1,64}/(?:stop|abandon|speech|speech/v2|speech/v2/cancel)$" 1;
+        "~^POST:(?:/targets/linux)?/audio/[A-Za-z0-9_-]{1,64}(?:/chunk|/finish|/abort)?$" 1;
+        "~^POST:(?:/targets/linux)?/chats/[A-Za-z0-9_-]{1,64}/messages$" 1;
+    }
+    map $http_authorization $pocket_auth_shaped {
+        default 0;
+        "~^Bearer [!-~]{32,128}$" 1;
+    }
+    limit_conn_zone $server_addr zone=pocket_connections:1m;
+    upstream pocket_lan_021 {
+        server 192.0.2.10:8443;
+        keepalive 4;
+        keepalive_requests 1000;
+        keepalive_timeout 15s;
+    }
+    server {
+        listen 127.0.0.1:18843;
+        server_name _;
+        client_max_body_size 8192;
+        client_body_buffer_size 8192;
+        client_header_timeout 5s;
+        client_body_timeout 5s;
+        keepalive_timeout 15s;
+        limit_conn pocket_connections 16;
+        limit_conn_status 429;
+        if ($pocket_route_allowed = 0) { return 404; }
+        if ($pocket_auth_shaped = 0) { return 401; }
+        if ($http_transfer_encoding != "") { return 400; }
+        add_header X-Pocket-Funnel temporary-021 always;
+        location / {
+            proxy_pass https://pocket_lan_021;
+            proxy_http_version 1.1;
+            proxy_pass_request_headers off;
+            proxy_set_header Host 192.0.2.10:8443;
+            proxy_set_header Authorization $http_authorization;
+            proxy_set_header Accept application/json;
+            proxy_set_header Content-Type application/json;
+            proxy_set_header Connection "";
+            proxy_request_buffering on;
+            proxy_buffering on;
+            proxy_buffer_size 16k;
+            proxy_buffers 8 16k;
+            proxy_max_temp_file_size 0;
+            proxy_connect_timeout 3s;
+            proxy_send_timeout 15s;
+            proxy_read_timeout 20s;
+            proxy_next_upstream off;
+            proxy_redirect off;
+            proxy_ssl_verify on;
+            proxy_ssl_verify_depth 2;
+            proxy_ssl_trusted_certificate /home/example/.hermes/pocket/bridge-20261014/tls/pocket-ca.pem;
+            proxy_ssl_name 192.0.2.10;
+            proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        }
+    }
+}

@@ -24,3 +24,8 @@ firmware/sdkconfig.old
 private/
 state/
 snapshots/
+
+# Private diagnostic output and native host build artifacts
+tools/diagnostics/serial-*.json
+*.exe
+*.dll

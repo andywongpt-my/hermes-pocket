@@ -24,26 +24,26 @@ import threading
 import time
 import uuid
 
-BASE = Path('/opt/pocket-checkpoint/owner/.hermes/pocket/gateway-only-20261015')
+BASE = Path('/home/example/.hermes/pocket/gateway-only-20261015')
 RELEASE = BASE / 'releases/voice-usage-preview-transport-v2-20261015-011'
-STAGE = BASE / 'staging/account-quota-020-ops'
+STAGE = BASE / 'staging/account-quota-020-codex-ops-r3'
 PACKAGE = BASE / 'staging/account-quota-020-r3/package'
-RUNTIME = BASE / 'account-quota-020'
+RUNTIME = BASE / 'account-quota-020-codex'
 NUMERIC = BASE / 'state/.linux-pocket.sqlite.account-quota-v1'
 DB = BASE / 'state/linux-pocket.sqlite'
-PYTHON = '/opt/pocket-checkpoint/owner/.hermes/hermes-agent/venv/bin/python'
+PYTHON = '/home/example/.hermes/hermes-agent/venv/bin/python'
 SERVICE = 'hermes-pocket-gateway-only.service'
 QUOTA_SERVICE = 'hermes-pocket-claude-quota-020.service'
-DEVICE_ENV = '/opt/pocket-checkpoint/owner/.hermes/pocket/bridge-20261014/private/device.env'
-CA = Path('/opt/pocket-checkpoint/owner/.hermes/pocket/bridge-20261014/tls/pocket-ca.pem')
+DEVICE_ENV = '/home/example/.hermes/pocket/bridge-20261014/private/device.env'
+CA = Path('/home/example/.hermes/pocket/bridge-20261014/tls/pocket-ca.pem')
 BACKEND_IDENTITY = '37442dc244c2aeb0075d80f151bfadb0017d4b7b0f310930dca2a34d1b94b419'
 BACKEND_PINS = {
     'manifest-R3.json': 'b59543b1c72fe0f7ec0724bbe07d5c7a5741fe2836e5635bf9ac1b90a17c8b43',
     'backend-freeze-R3.json': '1ea7dc31490796c6996e169beec597b2fea68ae1d03bb6574454b636307f0e37',
     'offline-linux-result-R3.json': '5017c98db1160944ed30bb152e4cf89a4c0ed761e93dfc0e87507e48dc4b196d',
     'review-account-quota-R3.json': '0bcdf1b54bd4870e2c728deedf3208732c0140709dfabefa04c3faa74261de3d'}
-IMPLEMENTATIONS = ('quota_remote_020.py', 'operate_quota_020.py', 'quota_refresh_020.py', 'test_quota_ops_020.py')
-COLLECTOR_FILES = ('official_claude_usage.py', 'test_official_claude_usage.py')
+IMPLEMENTATIONS = ('quota_remote_020.py', 'operate_quota_020.py', 'quota_refresh_020.py', 'test_quota_ops_020.py', 'test_r3_preserved.py', 'private_aw_020.py', 'make_acceptance_020.py', 'test_split_proof_020.py')
+COLLECTOR_FILES = ('official_codex_quota.py', 'test_official_codex_quota.py')
 CHANGED = ('pocket/quota_export.py', 'pocket/quota_snapshots.py', 'pocket/server.py')
 CHILD_ENVIRONMENT = {'overrides': {'CLAUDE_CODE_SKIP_PROMPT_HISTORY': '1',
     'DISABLE_UPDATES': '1', 'IS_DEMO': '1', 'TERM': 'xterm-256color'},
@@ -62,18 +62,19 @@ REPLY_DELIVERY = {'version': 1, 'text_pages': {'version': 1, 'page_bytes': 768,
     'sample_rate': 16000, 'channels': 1, 'sample_bits': 16, 'max_tts_utf8_bytes': 4096,
     'max_encoded_bytes': 3145728, 'generation_timeout_seconds': 120, 'decode_timeout_seconds': 20,
     'idle_ttl_seconds': 180, 'absolute_ttl_seconds': 900}}
-PROTECTED = {'linux_config': Path('/opt/pocket-checkpoint/owner/.hermes/config.yaml'),
+PROTECTED = {'linux_config': Path('/home/example/.hermes/config.yaml'),
     'owner_config': BASE / 'owner-config-fish-voice-002.json',
     'speech_pins': BASE / 'hermes-speech-pins.json',
-    'unit': Path('/opt/pocket-checkpoint/owner/.config/systemd/user/hermes-pocket-gateway-only.service'),
-    'stt_helper': Path('/opt/pocket-checkpoint/owner/.hermes/pocket/helpers/pocket_local_stt.py'),
-    'fish_helper': Path('/opt/pocket-checkpoint/owner/.hermes/scripts/fish-audio-tts.sh'),
+    'unit': Path('/home/example/.config/systemd/user/hermes-pocket-gateway-only.service'),
+    'stt_helper': Path('/home/example/.hermes/pocket/helpers/pocket_local_stt.py'),
+    'fish_helper': Path('/home/example/.hermes/scripts/fish-audio-tts.sh'),
     'ca': CA, 'transport_control': RELEASE / 'control_transport_011.py'}
 PHASES = ('deployment', 'activation', 'rollback')
 MARKERS = ('dispatched', 'started', 'progress', 'result')
 MAX_BYTES = 1024 * 1024
 MAX_PAYLOAD = 3 * MAX_BYTES
-OFFLINE_FILES = (*IMPLEMENTATIONS, *BACKEND_PINS)
+QUALIFICATION_PINS = {'official_codex_quota.py': '932ffa579860a91f37d2a84cd1e612fb9fd97a5a729b443e19ea5478335c778c', 'test_official_codex_quota.py': '8725cc0f9ae5221e989e399ca768b10d57405c98b9f414ee054965c13bb23eb0', 'codex-producer-resume-20261018-report.json': '4d90df8265c0ee088f44e3974ac58727efc89d1dec1d472776b7ed41c96c88de', 'codex-producer-review-R2-20261018.json': '45537dc3e93c3825dfec955e91bb6f88c29cd2d0259cd275561a16db74a10251'}
+OFFLINE_FILES = (*IMPLEMENTATIONS, *BACKEND_PINS, *QUALIFICATION_PINS)
 STAGE_MANIFEST = 'quotaops-stage.json'
 OPERATION_LOCK = 'quotaops-operation.lock'
 OPERATION_LOCK_BYTES = b'quota-020-operation-lock-v1\n'
@@ -188,8 +189,8 @@ def validate_bundle(root, *, blobs=None):
                 'acceptance_missing')
         require(acceptance.get('candidate_hashes_sha256') == BACKEND_IDENTITY, 'backend_binding')
         review_name = acceptance.get('collector_review', '')
-        require(re.fullmatch(r'review-claude-usage-R[0-9]+\.json', review_name) is not None, 'collector_binding')
-        required = {*BACKEND_PINS, 'claude-producer-freeze.json', review_name,
+        require(re.fullmatch(r'codex-producer-review-R2-20261018\.json', review_name) is not None, 'collector_binding')
+        required = {*BACKEND_PINS, 'codex-producer-resume-20261018-report.json', review_name,
                     'quotaops-native-acceptance.json', 'quotaops-tests.json', 'quotaops-review.json'}
         require(set(acceptance['artifact_hashes']) == required, 'artifact_binding')
         for name, expected in acceptance['artifact_hashes'].items():
@@ -217,28 +218,25 @@ def validate_bundle(root, *, blobs=None):
         require(set(source_hashes) == set(COLLECTOR_FILES), 'collector_binding')
         for name, expected in source_hashes.items():
             require(valid_hash(expected) and file_digest(name) == expected, 'collector_binding')
-        source_freeze = metadata('claude-producer-freeze.json')
-        linux = source_freeze['current_linux_verification']
+        require(acceptance.get('source_profile') == 'codex_aw_numeric_v1', 'source_profile_binding')
+        for name, expected in QUALIFICATION_PINS.items():
+            require(file_digest(name) == expected, 'qualification_source_binding')
+        source_freeze = metadata('codex-producer-resume-20261018-report.json')
         source_review = metadata(review_name)
-        require(hashes(source_freeze['files']) == source_hashes and hashes(linux['source_files']) == source_hashes
-                and linux['tests'] > 0 and linux['passed'] == linux['tests'] and linux['failures'] == 0
-                and linux['errors'] == 0 and linux['skipped'] == 0, 'collector_tests_binding')
-        require(source_review['verdict'] in ('approved_offline_code_only', 'approved')
-                and not source_review['findings'] and hashes(source_review['source_files']) == source_hashes,
-                'collector_review_binding')
+        pins = {Path(p['path'].replace('\\', '/')).name: p['sha256'] for p in source_freeze['source_and_test_pins']}
+        verified = source_freeze['verification']['post_review_covering_result']
+        review_pins = {p['path']: p['sha256'] for p in source_review['reviewed_pins']}
+        require(pins == source_hashes == review_pins and verified['tests'] == 30
+                and verified['passed'] == 30 and verified['exit_code'] == 0
+                and not verified['failures'] and not verified['errors'] and not verified['skipped_tests'],
+                'collector_tests_binding')
+        require(source_review['verdicts']['q1'] == 'ADDRESSED'
+                and source_review['verdicts']['quality_fix_diff'] == 'PASS'
+                and not source_review['finding_disposition']['new_findings'], 'collector_review_binding')
         native = metadata('quotaops-native-acceptance.json')
-        native_fields = {'accepted', 'source_files', 'freshness_verified', 'actual_usage_reads',
-            'fresh_snapshots', 'fetched_at', 'completed_at', 'cwd', 'child_environment',
-            'all_children_reaped', 'all_ptys_closed'}
-        require(set(native) == native_fields and native['accepted'] is True
-                and native['freshness_verified'] is True and hashes(native['source_files']) == source_hashes
-                and native['all_children_reaped'] is True and native['all_ptys_closed'] is True
-                and type(native['actual_usage_reads']) is int and 1 <= native['actual_usage_reads'] <= 2
-                and type(native['fresh_snapshots']) is int and 1 <= native['fresh_snapshots'] <= native['actual_usage_reads']
-                and type(native['fetched_at']) is int and type(native['completed_at']) is int
-                and 0 <= native['completed_at'] - native['fetched_at'] <= 60
-                and native['cwd'] == '/opt/pocket-checkpoint/owner' and native['child_environment'] == CHILD_ENVIRONMENT,
-                'native_acceptance_missing')
+        validate_codex_native(native, source_hashes)
+        require(native['operations_test_sha256'] == file_digest('quotaops-tests.json')
+            and native['operations_review_sha256'] == file_digest('quotaops-review.json'), 'native_attestation_binding')
         ops_tests = metadata('quotaops-tests.json')
         ops_review = metadata('quotaops-review.json')
         require(ops_tests['ok'] is True and ops_tests['tests'] > 0 and ops_tests['failures'] == 0
@@ -292,38 +290,42 @@ def _finite(value):
 
 
 def usage_ready(rows, *, quota_required, observed_at):
-    if not isinstance(rows, list) or len(rows) != 3: return False
-    if {row.get('provider') for row in rows if isinstance(row, dict)} != {'codex', 'claude', 'ollama_cloud'}: return False
-    available_local = False
-    fresh = False
+    if not isinstance(rows, list) or len(rows) != 3 or not _finite(observed_at): return False
+    if any(not isinstance(row, dict) for row in rows): return False
+    if {row.get('provider') for row in rows} != {'codex', 'claude', 'ollama_cloud'}: return False
+    available_local = False; fresh = False
     for row in rows:
         local = row.get('local_usage')
         if (not isinstance(local, dict) or local.get('scope') != 'pocket_runs'
                 or local.get('period') != 'all_recorded'
                 or local.get('availability') not in ('available', 'partial', 'unavailable')): return False
         available_local |= local['availability'] in ('available', 'partial')
-        if row['provider'] != 'claude':
-            if (row.get('availability') not in ('not_configured', 'unavailable') or row.get('value') is not None
-                    or row.get('fetched_at') is not None or row.get('metrics', [])): return False
-            continue
         metrics = row.get('metrics', [])
         if not isinstance(metrics, list) or len(metrics) > 64: return False
-        if not metrics and row.get('availability') == 'available': return False
-        if not metrics and (row.get('value') is not None or row.get('fetched_at') is not None): return False
+        if row['provider'] != 'codex':
+            if row.get('availability') not in ('not_configured', 'unavailable', 'stale', 'failed', 'partial'): return False
+            if row.get('value') is not None: return False
+            for metric in metrics:
+                if not isinstance(metric, dict) or metric.get('availability') not in ('stale', 'unavailable'): return False
+                fetched = metric.get('fetched_at')
+                if fetched is not None and (not _finite(fetched) or fetched > observed_at): return False
+            continue
+        if row.get('availability') not in ('not_configured', 'available', 'partial', 'unavailable', 'stale', 'failed'): return False
+        if not metrics and row.get('availability') in ('available', 'partial'): return False
         windows = set()
         for metric in metrics:
             if not isinstance(metric, dict): return False
             window = metric.get('window')
-            if window not in ('five_hour', 'seven_day') or window in windows: return False
+            if window not in ('codex:primary', 'codex:secondary') or window in windows: return False
             windows.add(window)
-            if (metric.get('provider') != 'claude' or metric.get('category') != 'subscription'
-                    or metric.get('unit') != 'percent_remaining' or metric.get('source') != 'Claude Code account limits'
-                    or metric.get('window_minutes') != {'five_hour': 300, 'seven_day': 10080}[window]): return False
-            value, fetched = metric.get('value'), metric.get('fetched_at')
+            if (metric.get('provider') != 'codex' or metric.get('category') != 'subscription'
+                    or metric.get('unit') != 'percent_remaining' or metric.get('source') != 'Codex app account limits'): return False
+            duration = metric.get('window_minutes')
+            if duration is not None and (type(duration) is not int or not 1 <= duration <= 4294967295): return False
             if metric.get('availability') == 'available':
+                value, fetched, reset = metric.get('value'), metric.get('fetched_at'), metric.get('resets_at')
                 if (not _finite(value) or not 0 <= value <= 100 or not _finite(fetched)
                         or not 0 <= observed_at - fetched < 300): return False
-                reset = metric.get('resets_at')
                 if reset is not None and (not _finite(reset) or reset <= observed_at): return False
                 fresh = True
             elif metric.get('availability') not in ('unavailable', 'stale'): return False
@@ -445,14 +447,14 @@ def probe(resident, *, quota_required=False):
         if label == 'usage':
             result['quota_ready'] = usage_ready(body, quota_required=quota_required, observed_at=time.time())
             result['local_usage_preserved'] = usage_ready(body, quota_required=False, observed_at=time.time())
-            result['fresh_claude_metrics'] = []
+            result['fresh_codex_metrics'] = []
             if isinstance(body, list):
                 for row in body:
-                    if isinstance(row, dict) and row.get('provider') == 'claude':
+                    if isinstance(row, dict) and row.get('provider') == 'codex':
                         for metric in row.get('metrics', []):
                             if isinstance(metric, dict) and metric.get('availability') == 'available':
-                                result['fresh_claude_metrics'].append({name: metric.get(name) for name in
-                                    ('window', 'value', 'unit', 'source', 'fetched_at', 'window_minutes')})
+                                result['fresh_codex_metrics'].append({name: metric.get(name) for name in
+                                    ('window', 'value', 'unit', 'source', 'fetched_at', 'window_minutes', 'resets_at')})
         if label == 'models': result['catalog_ok'] = body == CATALOG
         if tls: result['tls'] = tls
     result['ok'] = bool(result['health_http'] == result['status_http'] == result['usage_http'] == result['models_http'] == 200
@@ -570,7 +572,7 @@ def atomic_bytes(path, raw, *, mode=0o600, replace=False):
 
 
 def save(name, value, *, exclusive=False):
-    require(re.fullmatch(r'(deployment|activation|rollback|verification)-(dispatched|started|progress|result)\.json', name) is not None,
+    require(name in ('codex-channel.json','codex-push-result.json') or re.fullmatch(r'(deployment|activation|rollback|verification)-(dispatched|started|progress|result)\.json', name) is not None,
             'invalid_receipt_name')
     guard(STAGE, directory=True, private=True)
     raw = json.dumps(value, sort_keys=True, allow_nan=False).encode()
@@ -697,6 +699,8 @@ def stage_expected(bundle):
     expected['quotaops-acceptance.json'] = bundle['acceptance_sha256']
     expected.update({phase + '-' + marker + '.json': None for phase in PHASES for marker in MARKERS})
     expected['verification-result.json'] = None
+    expected['codex-channel.json'] = None
+    expected['codex-push-result.json'] = None
     expected[OPERATION_LOCK] = hashlib.sha256(OPERATION_LOCK_BYTES).hexdigest()
     for name in (STAGE_MANIFEST, 'quotaops-tests-dispatched.json', 'quotaops-tests-started.json', 'quotaops-tests.json', 'quotaops-linux.log'):
         expected.setdefault(name, None)
@@ -709,7 +713,7 @@ def offline_plan(blobs):
             and plan.get('backend_identity') == BACKEND_IDENTITY and plan.get('backend_pins') == BACKEND_PINS,
             'offline_stage_binding')
     require(set(plan['implementation_hashes']) == set(IMPLEMENTATIONS), 'offline_stage_binding')
-    for name, expected in {**BACKEND_PINS, **plan['implementation_hashes']}.items():
+    for name, expected in {**BACKEND_PINS, **QUALIFICATION_PINS, **plan['implementation_hashes']}.items():
         require(valid_hash(expected) and hashlib.sha256(blobs[name]).hexdigest() == expected, 'offline_stage_binding')
     require(candidate_identity(parse_json(blobs['manifest-R3.json'])) == BACKEND_IDENTITY, 'backend_binding')
     return plan
@@ -754,12 +758,12 @@ def validate_offline_stage():
     guard(STAGE, directory=True, private=True)
     blobs = {name: read_file(STAGE / name, private=True) for name in (*OFFLINE_FILES, STAGE_MANIFEST)}
     plan = offline_plan(blobs)
-    allowed = {*OFFLINE_FILES, STAGE_MANIFEST, *COLLECTOR_FILES, 'claude-producer-freeze.json',
+    allowed = {*OFFLINE_FILES, STAGE_MANIFEST, *COLLECTOR_FILES, 'codex-producer-resume-20261018-report.json',
         'quotaops-tests-dispatched.json', 'quotaops-tests-started.json', 'quotaops-tests.json',
         'quotaops-linux.log', 'quotaops-review.json', 'quotaops-native-acceptance.json', 'quotaops-acceptance.json',
-        'verification-result.json', OPERATION_LOCK, 'rollback', *(p + '-' + m + '.json' for p in PHASES for m in MARKERS)}
+        'verification-result.json', 'codex-channel.json', 'codex-push-result.json', OPERATION_LOCK, 'rollback', *(p + '-' + m + '.json' for p in PHASES for m in MARKERS)}
     for entry in STAGE.iterdir():
-        require(entry.name in allowed or re.fullmatch(r'review-claude-usage-R[0-9]+\.json', entry.name) is not None,
+        require(entry.name in allowed or re.fullmatch(r'codex-producer-review-R2-20261018\.json', entry.name) is not None,
                 'unknown_scope_content')
         if entry.name == 'rollback': guard(entry, directory=True, private=True)
         else:
@@ -947,14 +951,21 @@ def closed(manifest=None):
 
 
 def new_publication(previous_revision, since, metrics):
-    path = NUMERIC / 'claude.json'
+    path=NUMERIC/'codex.json'
     if not os.path.lexists(path): return False
-    observed = guard(path, private=True)
-    if revision(observed) == previous_revision: return False
-    snapshot = parse_json(read_file(path, private=True, maximum=16384))
-    fetched = snapshot.get('fetched_at')
-    return (type(fetched) is int and fetched >= since
-            and any(metric.get('fetched_at') == fetched for metric in metrics))
+    observed=guard(path,private=True)
+    if previous_revision is not None and list(revision(observed)) == list(previous_revision): return False
+    try:
+        snapshot=validate_codex_snapshot(read_file(path,private=True,maximum=16384),observed_at=time.time())
+        if snapshot['fetched_at'] < since: return False
+        expected=[]
+        for row in snapshot['metrics']:
+            if row['used_percent'] is None or row['resets_at'] is not None and row['resets_at'] <= time.time(): continue
+            expected.append({'window':row['window'],'value':100-row['used_percent'],'unit':'percent_remaining',
+                'source':'Codex app account limits','fetched_at':snapshot['fetched_at'],
+                'window_minutes':row.get('window_minutes'),'resets_at':row['resets_at']})
+        return bool(expected) and sorted(metrics,key=lambda m:m['window']) == sorted(expected,key=lambda m:m['window'])
+    except (OpsError,TypeError,KeyError,ValueError): return False
 
 
 def wait_ready(*, quota_required=False, since=None, previous_revision=None):
@@ -966,7 +977,7 @@ def wait_ready(*, quota_required=False, since=None, previous_revision=None):
             if remaining <= 0: break
             value = runtime(mode, timeout=min(35, remaining))
             if value.get('ok') and (since is None or new_publication(
-                    previous_revision, since, value.get('fresh_claude_metrics', []))): return value
+                    previous_revision, since, value.get('fresh_codex_metrics', []))): return value
         except Exception: pass
         time.sleep(.4)
     raise OpsError('readiness_deadline')
@@ -1097,97 +1108,52 @@ def execute_deployment(manifest, receipt):
 
 
 def unit_info():
-    value = control('show', QUOTA_SERVICE, '--property=LoadState,ActiveState,SubState,MainPID,Job,Transient,FragmentPath,ExecStart,WorkingDirectory,KillMode,TimeoutStopUSec', check=False)
-    return dict(line.split('=', 1) for line in value.stdout.splitlines() if '=' in line)
+    # Compatibility adapter for inherited rollback checks; this is a receive channel, never a process/service.
+    if not os.path.lexists(STAGE/CODEX_CHANNEL): return {'LoadState':'not-found'}
+    value=read_json(STAGE/CODEX_CHANNEL)
+    return {'LoadState':'loaded','ActiveState':'active' if value.get('enabled') is True else 'inactive',
+        'SubState':'channel','MainPID':'0','Job':'0','profile':value.get('profile')}
 
 
 def owned_quota_unit(value):
-    command = re.search(r'argv\[\]=([^;]+);', value.get('ExecStart', ''))
-    return (value.get('Transient') == 'yes' and value.get('WorkingDirectory') == '/opt/pocket-checkpoint/owner'
-        and value.get('KillMode') == 'control-group' and value.get('TimeoutStopUSec') == '8s'
-        and value.get('FragmentPath') == '/run/user/' + str(os.getuid()) + '/systemd/transient/' + QUOTA_SERVICE
-        and command is not None and command.group(1).strip().split() == [PYTHON, '-B', str(RUNTIME / 'quota_refresh_020.py')])
+    return value.get('profile')==CODEX_PROFILE and value.get('SubState')=='channel' and value.get('MainPID')=='0'
 
 
 def stop_owned_quota():
-    observed = unit_info()
-    if observed.get('LoadState') == 'not-found': return
-    require(owned_quota_unit(observed), 'quota_unit_collision')
-    if known_stopped(observed): return
-    try: control('stop', QUOTA_SERVICE, check=False)
-    except Exception: pass
-    deadline = time.monotonic() + 12
-    while time.monotonic() < deadline:
-        observed = unit_info()
-        if observed.get('LoadState') == 'not-found' or known_stopped(observed): return
-        require(owned_quota_unit(observed), 'quota_unit_collision')
-        time.sleep(.2)
-    raise OpsError('quota_stop_uncertain')
+    if not os.path.lexists(STAGE/CODEX_CHANNEL): return
+    bundle=validate_bundle(STAGE)
+    value=read_json(STAGE/CODEX_CHANNEL)
+    require(value.get('profile')==CODEX_PROFILE and value.get('acceptance_sha256')==bundle['acceptance_sha256'],'codex_channel_collision')
+    value.update(enabled=False,state='revoked'); save(CODEX_CHANNEL,value)
+    require(read_json(STAGE/CODEX_CHANNEL)==value,'codex_revoke_uncertain')
 
 
 def install_runtime(bundle):
-    runtime_manifest = {'version': 1, 'candidate_hashes_sha256': bundle['identity'],
-        'acceptance_sha256': bundle['acceptance_sha256'], 'cwd': '/opt/pocket-checkpoint/owner',
-        'child_environment': CHILD_ENVIRONMENT, 'interval_seconds': 120, 'probe_deadline_seconds': 55.0,
-        'runtime_hashes': {'official_claude_usage.py': hashes(bundle['acceptance']['collector_files'])['official_claude_usage.py'],
-            'quota_refresh_020.py': bundle['acceptance']['implementation_hashes']['quota_refresh_020.py']},
-        'backend_hashes': {n: h for n, h in bundle['manifest']['candidate_hashes'].items() if n.startswith('pocket/')}}
-    bodies = {n: read_file(STAGE / n, private=True) for n in ('official_claude_usage.py', 'quota_refresh_020.py')}
-    bodies['manifest.json'] = json.dumps(runtime_manifest, sort_keys=True, allow_nan=False).encode()
-    if os.path.lexists(RUNTIME): validate_scope(RUNTIME, {n: hashlib.sha256(b).hexdigest() for n, b in bodies.items()})
-    else:
-        guard(RUNTIME.parent, directory=True)
-        RUNTIME.mkdir(mode=0o700)
-    for name, body in bodies.items():
-        if not os.path.lexists(RUNTIME / name): atomic_bytes(RUNTIME / name, body)
-    validate_scope(RUNTIME, {n: hashlib.sha256(b).hexdigest() for n, b in bodies.items()})
-    if not os.path.lexists(NUMERIC):
-        guard(NUMERIC.parent, directory=True)
-        NUMERIC.mkdir(mode=0o700)
-    validate_scope(NUMERIC, {'claude.json': None})
-    if os.path.lexists(NUMERIC / 'claude.json'):
-        # Reuse strict backend file validation; no output is written here.
-        sys.path.insert(0, str(RELEASE))
-        from pocket.quota_snapshots import PrivateDirectory, read_private
-        with PrivateDirectory(NUMERIC) as directory: read_private(directory, 'claude.json', provider='claude')
-    return runtime_manifest
+    raise OpsError('codex_uses_aw_sender')
 
 
 def activate(operation_id):
-    bundle = validate_bundle(STAGE); validate_remote_stage(bundle)
+    bundle=validate_bundle(STAGE); validate_remote_stage(bundle)
     with operation_lock():
-        validate_remote_stage(bundle)
-        prior_operators_absent('activation', bundle['acceptance_sha256'])
-        deployment = read_json(STAGE / 'deployment-result.json')
+        validate_remote_stage(bundle); prior_operators_absent('activation',bundle['acceptance_sha256'])
+        deployment=read_json(STAGE/'deployment-result.json')
         require(deployment.get('ok') is True and deployment.get('backend_deployed') is True
-                and deployment.get('acceptance_sha256') == bundle['acceptance_sha256'], 'backend_deployment_required')
-        check_hashes(bundle['manifest'], True); gateway_invariants()
-        require(unit_info().get('LoadState') == 'not-found', 'quota_unit_collision')
-        receipt = begin_attempt('activation', operation_id, bundle)
+            and deployment.get('acceptance_sha256') == bundle['acceptance_sha256'],'backend_deployment_required')
+        check_hashes(bundle['manifest'],True); gateway_invariants()
+        channel=read_channel(bundle); require(channel['state']=='pending','activation_already_active')
+        receipt=begin_attempt('activation',operation_id,bundle)
         try:
-            receipt['runtime'] = install_runtime(bundle)
-            # Require a fetch that started in THIS activation, never an existing cache.
-            started_at = time.time()
-            old_revision = revision(guard(NUMERIC / 'claude.json', private=True)) if os.path.lexists(NUMERIC / 'claude.json') else None
-            receipt['phase'] = 'quota_start'; save('activation-progress.json', receipt)
-            result = bounded_run(['systemd-run', '--user', '--quiet', '--collect', '--unit=' + QUOTA_SERVICE,
-                '-p', 'WorkingDirectory=/opt/pocket-checkpoint/owner', '-p', 'KillMode=control-group', '-p', 'TimeoutStopSec=8',
-                '-p', 'SendSIGKILL=yes', '-p', 'Restart=no', PYTHON, '-B', str(RUNTIME / 'quota_refresh_020.py')],
-                env=user_env(), timeout=20)
-            require(result.returncode == 0, 'quota_start_failed')
-            require(owned_quota_unit(unit_info()), 'quota_unit_collision')
-            receipt['after'] = wait_ready(quota_required=True, since=int(started_at), previous_revision=old_revision)
-            require(same_tls(deployment['after'].get('tls'), receipt['after'].get('tls')), 'tls_identity_changed')
-            check_hashes(bundle['manifest'], True); gateway_invariants()
-            receipt.update(ok=True, backend_deployed=True, quota_activated=True, phase='quota_fresh',
-                           automatic_refresh_seconds_after_completion=120, autostart_disabled=True,
-                           account_metadata_probes=None, account_metadata_probes_at_least=1)
+            receipt['after']=wait_ready(quota_required=True,since=channel['not_before'],previous_revision=channel['previous_revision'])
+            require(same_tls(deployment['after'].get('tls'),receipt['after'].get('tls')),'tls_identity_changed')
+            check_hashes(bundle['manifest'],True); gateway_invariants()
+            channel['state']='active'; save(CODEX_CHANNEL,channel)
+            receipt.update(ok=True,backend_deployed=True,quota_activated=True,phase='quota_fresh',
+                source_profile=CODEX_PROFILE,automatic_refresh_seconds_after_completion=120,autostart_disabled=True)
         except Exception as error:
-            receipt.update(backend_deployed=True, quota_activated=False,
-                           category=str(error) if isinstance(error, OpsError) else 'activation_failed')
-            try: stop_owned_quota(); receipt['quota_unit_stopped'] = True
-            except Exception: receipt['recovery_pending'] = True
-        save('activation-result.json', receipt, exclusive=True)
+            receipt.update(backend_deployed=True,quota_activated=False,category=str(error) if isinstance(error,OpsError) else 'activation_failed')
+            try: stop_owned_quota(); receipt['quota_channel_revoked']=True
+            except Exception: receipt['recovery_pending']=True
+        save('activation-result.json',receipt,exclusive=True)
         return receipt
 
 
@@ -1198,30 +1164,63 @@ def rollback(operation_id):
         previous = prior_operators_absent('rollback', bundle['acceptance_sha256'])
         require('deployment' in previous, 'no_owned_deployment')
         records = previous['deployment']
-        original = records.get('result') or records.get('progress') or records['started']
+        original = records.get('result', records.get('progress', records['started']))
         manifest = bundle['manifest']
         check_hashes(manifest, True, mixed=True)
         recovery = restore_preflight(manifest)
+        if os.path.lexists(STAGE/CODEX_CHANNEL): stop_owned_quota()
         receipt = begin_attempt('rollback', operation_id, bundle)
         try:
             if recovery['baseline']:
-                # A deployment rejected before its delta must not cause an outage
-                # just because it never needed to create a backup.
                 before = service_state()
-                require(stable_running(before), 'baseline_service_requires_inspect')
                 quota = unit_info()
                 require(quota.get('LoadState') == 'not-found' or (owned_quota_unit(quota)
                         and known_stopped(quota)), 'baseline_quota_unit_requires_inspect')
-                receipt['after'] = runtime('--probe-after')
+                if stable_running(before):
+                    # A healthy unchanged baseline needs neither a backup nor a restart.
+                    receipt['after'] = runtime('--probe-after')
+                    receipt['no_op'] = True
+                else:
+                    require(known_stopped(before), 'baseline_service_requires_inspect')
+                    prior = original.get('before') or {}
+                    stopped = original.get('initial_service')
+                    require(original.get('ok') is False and prior.get('ok') is True
+                            and same_tls(prior.get('tls'), prior.get('tls'))
+                            and original.get('initial_stop_attempted') is True
+                            and isinstance(stopped, dict) and known_stopped(stopped)
+                            and (original.get('recovery_pending') is True if 'result' in records else
+                                 original.get('phase') in ('apply', 'start', 'initial_stop_reconciliation',
+                                     'rollback_stop_reconciliation', 'recovery_stop_reconciliation'))
+                            and all(value.get('ok') is not True and not value.get('original_service_restored')
+                                and not value.get('backend_deployed') and value.get('phase') != 'backend_ready'
+                                and value.get('before', prior) == prior
+                                and value.get('initial_stop_attempted', True) is True
+                                for value in records.values()), 'baseline_owned_stop_requires_inspect')
+                    guard(Path(DB).absolute())
+                    gate = sqlite3.connect(str(DB), timeout=2, isolation_level=None)
+                    try:
+                        gate.execute('BEGIN IMMEDIATE')
+                        receipt['recovery_states'] = states(gate)
+                        require(active_count(gate) == 0, 'owner_work_active')
+                        check_hashes(manifest, False); gateway_invariants()
+                        quota = unit_info()
+                        require(quota.get('LoadState') == 'not-found' or (owned_quota_unit(quota)
+                                and known_stopped(quota)), 'baseline_quota_unit_requires_inspect')
+                        require_stopped()
+                        # Hold admission through the sole start; readiness may need SQLite afterwards.
+                        control('start', SERVICE)
+                    finally:
+                        gate.rollback(); gate.close()
+                    receipt['after'] = wait_ready()
+                    require(resident_ready(receipt['after'].get('resident_stt')), 'baseline_readiness_failed')
                 require(receipt['after'].get('ok') is True and same_tls(receipt['after'].get('tls'),
                         receipt['after'].get('tls')), 'baseline_readiness_failed')
                 original_tls = (original.get('before') or {}).get('tls')
                 if original_tls is not None:
                     require(same_tls(original_tls, receipt['after'].get('tls')), 'tls_identity_changed')
                 after = service_state()
-                require(stable_running(after) and before['MainPID'] == after['MainPID']
+                require(stable_running(after) and (not receipt.get('no_op') or before['MainPID'] == after['MainPID'])
                         and process_cwd(int(after['MainPID'])) == str(RELEASE), 'baseline_service_changed')
-                receipt['no_op'] = True
             else:
                 stop_owned_quota()
                 stop_when_idle(receipt, 'rollback')
@@ -1249,7 +1248,7 @@ def verify():
     result = runtime('--probe-active' if active else '--probe-after')
     require(same_tls(deployment['after'].get('tls'), result.get('tls')), 'tls_identity_changed')
     require(closed(bundle['manifest'])['ok'], 'diagnostic_closure_failed')
-    if active: require(owned_quota_unit(unit_info()) and stable_running(unit_info()), 'quota_unit_unavailable')
+    if active: read_channel(bundle, allow_pending=False)
     pid = int(control('show', SERVICE, '-p', 'MainPID', '--value').stdout)
     require(pid == deployment['main_pid'] and process_cwd(pid) == str(RELEASE), 'gateway_restarted_or_moved')
     process_status = verify_processes(result, pid)
@@ -1303,6 +1302,10 @@ def inspect_stage():
             result['attempts'][phase]['operator_process_exists'] = operator_process_exists(identity['operator_pid']) if identity else False
         except Exception:
             result['attempts'][phase].update(ownership_state='incomplete_or_inconsistent_inspect', operator_process_exists=None)
+    if os.path.lexists(STAGE / 'codex-push-result.json'):
+        result['last_codex_push'] = read_json(STAGE / 'codex-push-result.json')
+    if result.get('production_accepted') and os.path.lexists(NUMERIC/'codex.json'):
+        result['published_codex'] = inspect_codex_publication()
     result['gateway'] = service_state()
     quota = unit_info()
     result['quota_unit'] = {k: quota.get(k) for k in ('LoadState', 'ActiveState', 'SubState', 'MainPID', 'Job')}
@@ -1368,6 +1371,8 @@ def main(argv=None):
         elif args == ['--probe-active']: result = probe(True, quota_required=True)
         elif args == ['--inspect']: result = inspect_stage()
         elif args == ['--verify']: result = verify()
+        elif args == ['--prepare-codex']: result = prepare_codex()
+        elif args == ['--push-codex']: result = push_codex(sys.stdin.buffer.read(16385))
         elif len(args) == 3 and args[0] == '--run' and args[1] in PHASES:
             result = {'deployment': deploy, 'activation': activate, 'rollback': rollback}[args[1]](args[2])
         else: raise OpsError('unsupported_operation')
@@ -1375,6 +1380,141 @@ def main(argv=None):
         result = {'ok': False, 'category': str(error) if isinstance(error, OpsError) else 'operation_rejected', **counters()}
     print(json.dumps(result, allow_nan=False), flush=True)
     return 0 if result.get('ok') is True else 2 if result.get('recovery_pending') or result.get('outcome_uncertain') else 1
+
+
+CODEX_PROFILE = 'codex_aw_numeric_v1'
+CODEX_CHANNEL = 'codex-channel.json'
+
+
+def validate_codex_native(native, source_hashes):
+    fields={'version','profile','accepted','source_files','private_proof_sha256',
+        'helper_files','helper_evidence_sha256','operations_test_sha256','operations_review_sha256'}
+    require(isinstance(native,dict) and set(native)==fields,'native_attestation_schema')
+    require(type(native['version']) is int and native['version']==2 and native['profile']==CODEX_PROFILE
+        and native['accepted'] is True and native['source_files']==source_hashes,'native_attestation_binding')
+    require(isinstance(native['helper_files'],dict) and set(native['helper_files'])==
+        {'native_aw_qualification.py','test_native_aw_qualification.py'}
+        and all(valid_hash(v) for v in native['helper_files'].values()),'native_attestation_binding')
+    for key in ('private_proof_sha256','helper_evidence_sha256','operations_test_sha256','operations_review_sha256'):
+        require(valid_hash(native[key]),'native_attestation_binding')
+
+
+def validate_codex_snapshot(raw, *, observed_at, started_at=None):
+    require(isinstance(raw, bytes) and len(raw) <= 16384, 'invalid_codex_snapshot')
+    value = parse_json(raw)
+    require(isinstance(value, dict) and set(value) == {'version','scope','provider','source','fetched_at','metrics'}, 'invalid_codex_snapshot')
+    require(type(value['version']) is int and value['version'] == 1 and value['scope'] == 'account'
+        and value['provider'] == 'codex' and value['source'] == 'codex_app', 'invalid_codex_snapshot')
+    fetched = value['fetched_at']
+    require(type(fetched) is int and 0 <= fetched <= 2**53-1 and _finite(observed_at)
+        and 0 <= observed_at-fetched < 300, 'stale_codex_snapshot')
+    if started_at is not None:
+        require(_finite(started_at) and int(started_at) <= fetched and 0 <= observed_at-started_at <= 60, 'stale_codex_snapshot')
+    rows=value['metrics']; windows=set(); usable=False
+    require(isinstance(rows,list) and 1 <= len(rows) <= 2, 'invalid_codex_snapshot')
+    for row in rows:
+        require(isinstance(row,dict) and {'window','used_percent','resets_at'} <= set(row)
+            and set(row) <= {'window','used_percent','resets_at','window_minutes'}, 'invalid_codex_snapshot')
+        require(isinstance(row['window'],str) and row['window'] in ('codex:primary','codex:secondary')
+            and row['window'] not in windows, 'invalid_codex_snapshot')
+        windows.add(row['window']); used=row['used_percent']; reset=row['resets_at']
+        require(used is None or _finite(used) and 0 <= used <= 100, 'invalid_codex_snapshot')
+        require(reset is None or type(reset) is int and 0 <= reset <= 2**53-1, 'invalid_codex_snapshot')
+        if 'window_minutes' in row:
+            require(type(row['window_minutes']) is int and 1 <= row['window_minutes'] <= 4294967295, 'invalid_codex_snapshot')
+        usable |= used is not None and (reset is None or reset > observed_at)
+    require(usable, 'unusable_codex_snapshot')
+    return value
+
+
+def read_channel(bundle, *, allow_pending=True):
+    value = read_json(STAGE / CODEX_CHANNEL)
+    require(set(value) == {'version','profile','acceptance_sha256','enabled','state','not_before','expires_at','previous_revision'}
+        and value['version'] == 1 and type(value['version']) is int and value['profile'] == CODEX_PROFILE
+        and value['acceptance_sha256'] == bundle['acceptance_sha256']
+        and value['enabled'] is True and value['state'] in (('pending','active') if allow_pending else ('active',)),
+        'codex_channel_disabled')
+    require(type(value['not_before']) is int and value['not_before'] >= 0 and type(value['expires_at']) is int
+        and value['expires_at'] == value['not_before'] + 300, 'invalid_codex_channel')
+    if value['state'] == 'pending': require(time.time() < value['expires_at'], 'codex_activation_expired')
+    return value
+
+
+def prepare_codex():
+    bundle=validate_bundle(STAGE); validate_remote_stage(bundle)
+    with operation_lock():
+        validate_remote_stage(bundle); assert_new_attempt(STAGE,'activation')
+        prior_operators_absent('activation',bundle['acceptance_sha256'])
+        require(not any(os.path.lexists(STAGE / ('rollback-'+m+'.json')) for m in MARKERS), 'rollback_in_progress')
+        deployment=read_json(STAGE/'deployment-result.json')
+        require(deployment.get('ok') is True and deployment.get('backend_deployed') is True
+            and deployment.get('acceptance_sha256') == bundle['acceptance_sha256'], 'backend_deployment_required')
+        check_hashes(bundle['manifest'],True); gateway_invariants()
+        require(not os.path.lexists(STAGE/CODEX_CHANNEL),'codex_channel_exists_inspect')
+        if not os.path.lexists(NUMERIC):
+            guard(NUMERIC.parent,directory=True); NUMERIC.mkdir(mode=0o700)
+        validate_scope(NUMERIC,{'codex.json':None,'claude.json':None})
+        old=revision(guard(NUMERIC/'codex.json',private=True)) if os.path.lexists(NUMERIC/'codex.json') else None
+        started=int(time.time())
+        value={'version':1,'profile':CODEX_PROFILE,'acceptance_sha256':bundle['acceptance_sha256'],
+            'enabled':True,'state':'pending','not_before':started,'expires_at':started+300,'previous_revision':old}
+        save(CODEX_CHANNEL,value,exclusive=True)
+        return {'ok':True,'profile':CODEX_PROFILE,'acceptance_sha256':bundle['acceptance_sha256'],
+            'not_before':started,'expires_at':started+300,**counters()}
+
+
+def push_codex(raw):
+    bundle=validate_bundle(STAGE); validate_remote_stage(bundle)
+    with operation_lock():
+        validate_remote_stage(bundle)
+        require(not any(os.path.lexists(STAGE/('rollback-'+m+'.json')) for m in MARKERS),'rollback_in_progress')
+        channel=read_channel(bundle)
+        deployment=read_json(STAGE/'deployment-result.json')
+        require(deployment.get('ok') is True and deployment.get('acceptance_sha256') == bundle['acceptance_sha256'], 'backend_deployment_required')
+        if channel['state'] == 'active':
+            require(read_json(STAGE/'activation-result.json').get('ok') is True,'activation_required')
+        check_hashes(bundle['manifest'],True); gateway_invariants()
+        value=validate_codex_snapshot(raw,observed_at=time.time())
+        require(value['fetched_at'] >= channel['not_before'],'preactivation_snapshot')
+        validate_scope(NUMERIC,{'codex.json':None,'claude.json':None})
+        sys.path.insert(0,str(RELEASE))
+        from pocket.quota_export import publish_snapshot
+        from pocket.quota_snapshots import PrivateDirectory, read_private
+        with PrivateDirectory(NUMERIC) as directory:
+            try: previous=read_private(directory,'codex.json',provider='codex')
+            except FileNotFoundError: previous=None
+        require(previous is None or value['fetched_at'] > previous['fetched_at'],'codex_replay')
+        published=publish_snapshot(value,NUMERIC/'codex.json')
+        receipt={'ok':True,'profile':CODEX_PROFILE,'provider':'codex','acceptance_sha256':bundle['acceptance_sha256'],
+            'fetched_at':published['fetched_at'],'snapshot_sha256':hashlib.sha256(json.dumps(published,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+        save('codex-push-result.json',receipt)
+        return receipt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def inspect_codex_publication():
+    try:
+        raw=read_file(NUMERIC/'codex.json',private=True,maximum=16384)
+        decoded=parse_json(raw)
+        value=validate_codex_snapshot(raw,observed_at=decoded.get('fetched_at'))
+        canonical=json.dumps(value,sort_keys=True,separators=(',',':')).encode('ascii')
+        return {'provider':'codex','fetched_at':value['fetched_at'],'snapshot_sha256':hashlib.sha256(canonical).hexdigest(),
+            'freshness_claimed':False}
+    except Exception:
+        return {'category':'publication_inspection_rejected','freshness_claimed':False}
 
 
 if __name__ == '__main__':

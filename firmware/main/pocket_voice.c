@@ -328,6 +328,9 @@ static void network(void *unused){
    /* Retry only restoration of our own prior mode, once per idle cycle. */
    capture_radio_retry();
    poll_target=pocket_actions_poll_target(poll_target);
+   if(!pocket_actions_poll_due(poll_target)){
+    pocket_setup_poll_release();poll_target=1-poll_target;continue;
+   }
    pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false,reachable=false;int http_status=0;
    pocket_diagnostics observed={.checked=true,.wifi=current.wifi_connected,.utc_ready=time(NULL)>=1704067200};
    if(observed.wifi && observed.utc_ready && !current.active)observed.configured=pocket_setup_link(poll_target,link);
@@ -359,7 +362,7 @@ static void network(void *unused){
    /* Reuse this worker/client/buffer after deleting status JSON; queued voice
       takes priority. No Usage requests run during capture, waiting or playback. */
    if(reachable && !voice_pending && pocket_setup_poll_continue()){
-    pocket_usage_poll(poll_target,link,response,8192);
+    if(pocket_actions_usage_due(poll_target))pocket_usage_poll(poll_target,link,response,8192);
     /* A held talk gesture may arrive during the Usage GET. Give its queued
        command priority before starting another read-only request. */
     portENTER_CRITICAL(&mux);voice_pending=state.busy;portEXIT_CRITICAL(&mux);
@@ -400,7 +403,7 @@ static void network(void *unused){
   apply_volume();
   snprintf(path,sizeof(path),"/targets/%s/audio/%s",name,id);
   cJSON *begin=request(link,path,begin_body,response,8192,VOICE_BEGIN);if(!begin)goto finished;cJSON_Delete(begin);started=true;
-  if(flags(&pressed) || !pressed)goto abort_capture;
+  if(flags(&pressed) || !pressed){message("Hold OK to speak");goto abort_capture;}
   xQueueReset(audio_queue);
   portENTER_CRITICAL(&mux);capture_done=false;capture_failed=false;state.recording=true;portEXIT_CRITICAL(&mux);
   message("Listening... release OK to send");

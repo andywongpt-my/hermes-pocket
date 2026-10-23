@@ -5,23 +5,49 @@
 #include "pocket_models_client.h"
 #include "pocket_power.h"
 #include "pocket_reader.h"
+#include "esp_timer.h"
 #include <stdatomic.h>
 #include <limits.h>
+#include <string.h>
 
 static atomic_uint visible=ATOMIC_VAR_INIT(UINT_MAX),requested_target;
 static atomic_bool screen_asleep;
+static atomic_uint selected_target;
+typedef struct {int64_t checked_ms;bool seen;} idle_stamp;
+static idle_stamp status_checks[2],usage_checks[2],background_checks[2];
+enum {SCREEN_STATUS_MS=30000,INACTIVE_STATUS_MS=120000,SCREEN_USAGE_MS=300000,SCREEN_TASKS_MS=120000};
+static bool quiet(void){return atomic_load_explicit(&screen_asleep,memory_order_relaxed)&&!pocket_tasks_active();}
+static bool due(idle_stamp *stamp,unsigned interval_ms,bool force){
+ const int64_t now=esp_timer_get_time()/1000;
+ if(!force&&stamp->seen&&now>=stamp->checked_ms&&now-stamp->checked_ms<interval_ms)return false;
+ stamp->seen=true;stamp->checked_ms=now;return true;
+}
 void pocket_actions_init(void){
  atomic_store_explicit(&visible,UINT_MAX,memory_order_relaxed);
  atomic_store_explicit(&requested_target,0,memory_order_relaxed);
  atomic_store_explicit(&screen_asleep,false,memory_order_relaxed);
+ atomic_store_explicit(&selected_target,0,memory_order_relaxed);
+ memset(status_checks,0,sizeof status_checks);memset(usage_checks,0,sizeof usage_checks);memset(background_checks,0,sizeof background_checks);
 }
-void pocket_actions_screen_off(bool off){atomic_store_explicit(&screen_asleep,off,memory_order_relaxed);}
+void pocket_actions_screen_off(bool off){
+ const bool was_off=atomic_exchange_explicit(&screen_asleep,off,memory_order_relaxed);
+ if(was_off&&!off)atomic_store_explicit(&requested_target,atomic_load_explicit(&selected_target,memory_order_relaxed)+1,memory_order_relaxed);
+}
+bool pocket_actions_poll_due(unsigned target){
+ if(target>1)return false;
+ const unsigned selected=atomic_load_explicit(&selected_target,memory_order_relaxed);
+ return due(&status_checks[target],target==selected?SCREEN_STATUS_MS:INACTIVE_STATUS_MS,!quiet());
+}
+bool pocket_actions_usage_due(unsigned target){
+ return target<2&&due(&usage_checks[target],SCREEN_USAGE_MS,!quiet());
+}
 unsigned pocket_actions_poll_ms(void){
  const bool off=atomic_load_explicit(&screen_asleep,memory_order_relaxed);
  return pocket_power_poll_ms(off,off&&pocket_tasks_active());
 }
 void pocket_actions_view(pocket_page page,unsigned target){
  if(target>1)return;
+ atomic_store_explicit(&selected_target,target,memory_order_relaxed);
  const unsigned view=(unsigned)page<POCKET_PAGE_COUNT?(unsigned)page*2+target:UINT_MAX;
  const unsigned previous=atomic_exchange_explicit(&visible,view,memory_order_relaxed);
  if(page==POCKET_TASKS && previous!=view){pocket_tasks_refresh(target);atomic_store_explicit(&requested_target,target+1,memory_order_relaxed);}
@@ -59,7 +85,8 @@ static void prepare_background_tasks(unsigned target){
   * the list again, since /view is what advances the backend's stored state.
   * End this stack copy before the bounded JSON parser runs in tasks_poll. */
  pocket_tasks_snapshot tasks;pocket_tasks_read(target,&tasks);
- if(tasks.list_status!=POCKET_TASKS_READY || tasks.view_status!=POCKET_TASKS_LOADING)pocket_tasks_refresh(target);
+ if(tasks.list_status==POCKET_TASKS_READY && tasks.view_status==POCKET_TASKS_LOADING)return;
+ if(due(&background_checks[target],SCREEN_TASKS_MS,!quiet()))pocket_tasks_refresh(target);
 }
 void pocket_actions_idle(unsigned target,const pocket_link_config *link,char *response,size_t capacity){
  if(target>1 || !link || !response || capacity<2 || capacity>8192)return;

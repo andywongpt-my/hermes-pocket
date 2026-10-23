@@ -1,0 +1,12 @@
+--- a/pocket/service.py
++++ b/pocket/service.py
+@@ -21,7 +21,8 @@
+         with self.lock:
+             task=self.store.get(device,rid)
+             if task['state'] in TERMINAL or not task['run_id']:return task
+-            snapshot=self.backend.read(task['run_id'])
++            try:snapshot=self.backend.read(task['run_id'])
++            except Exception:snapshot={'state':'unknown'}
+             return self.store.transition(device,rid,snapshot['state'],result=snapshot.get('result'))
+     def stop(self,device,rid):
+         with self.lock:

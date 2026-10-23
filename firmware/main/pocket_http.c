@@ -176,6 +176,10 @@ esp_err_t pocket_http_json(const char *origin,const char *path,const char *token
   int64_t began=esp_timer_get_time();
   ESP_LOGI("pocket_tls_heap","target=%u http=%d free_before=%u largest_before=%u free_after=%u largest_after=%u",
    target,result->status,free_before,largest_before,free_after,largest_after);
+#ifdef POCKET_LINUX_PUBLIC_ORIGIN
+  if(target==1)ESP_LOGI("pocket_funnel_status","approved_origin=%u public_ca=%u http=%d",
+                      (unsigned)!strcmp(origin,POCKET_LINUX_PUBLIC_ORIGIN),(unsigned)!ca[0],result->status);
+#endif
   result->diagnostic_us=elapsed_us(began);
  }
  result->total_us=elapsed_us(started_us);

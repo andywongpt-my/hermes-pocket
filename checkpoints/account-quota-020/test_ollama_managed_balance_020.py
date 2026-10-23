@@ -64,7 +64,7 @@ class OperationTests(unittest.IsolatedAsyncioTestCase):
             async def __aenter__(s): return s
             async def __aexit__(s,*a): pass
             async def get(s,path,cast_to):
-                outer.assertEqual(path,'/balance'); outer.assertIs(cast_to,dict)
+                outer.assertEqual(path,'/balance'); outer.assertEqual(cast_to,dict[str, object])
                 response=await s.http.get('https://ollama.com/api/balance')
                 return response.json()
         scope=types.ModuleType('agent.secret_scope')
@@ -192,3 +192,59 @@ class OperationTests(unittest.IsolatedAsyncioTestCase):
             for _ in range(5): await asyncio.sleep(0)
         self.assertFalse(m._pending)
         self.assertEqual(logger.level,logging.DEBUG)
+
+
+class InstalledSDKTests(unittest.IsolatedAsyncioTestCase):
+    _setupAsyncioRunner = OperationTests._setupAsyncioRunner
+
+    async def test_native_only_installed_sdk_parses_bounded_balance(self):
+        try:
+            import openai
+        except ModuleNotFoundError as exc:
+            if exc.name != 'openai':
+                raise
+            self.skipTest('native-only actual-SDK regression: installed openai required; no installation permitted')
+
+        requests, getter_names, transport_options, closed = [], [], [], []
+        payload = b'{"included":{"balance_usd":72.5,"allowance_usd":100},"purchased":{"balance_usd":25}}'
+
+        async def handler(request):
+            requests.append(request)
+            response = httpx.Response(200, headers={'content-type': 'application/json'},
+                                      stream=httpx.ByteStream(payload))
+            self.assertFalse(response.is_stream_consumed)
+            return response
+
+        class FixtureTransport(httpx.MockTransport):
+            def __init__(self, **kwargs):
+                transport_options.append(kwargs)
+                super().__init__(handler)
+
+            async def aclose(self):
+                closed.append(True)
+                await super().aclose()
+
+        scope = types.ModuleType('agent.secret_scope')
+        def synthetic_getter(name):
+            getter_names.append(name)
+            return 'synthetic-not-a-real-credential'
+        scope.get_secret_str = synthetic_getter
+        # Keep the installed AsyncOpenAI and its real response parser. Only the
+        # secret getter and network boundary are replaced with inert fixtures.
+        with patch.dict(sys.modules, {'agent': types.ModuleType('agent'),
+                                      'agent.secret_scope': scope}), \
+                patch.object(httpx, 'AsyncHTTPTransport', FixtureTransport), \
+                patch.object(m.time, 'time', return_value=1792309539):
+            result = await m.read_managed_ollama_balance()
+
+        self.assertEqual(getter_names, ['OLLAMA_API_KEY'])
+        self.assertEqual([(r.method, str(r.url)) for r in requests],
+                         [('GET', 'https://ollama.com/api/balance')])
+        self.assertEqual(transport_options, [{'verify': True, 'trust_env': False, 'retries': 0}])
+        self.assertTrue(closed)
+        self.assertEqual(result['status'], 'available')
+        self.assertEqual(result, m._normalize({
+            'included': {'balance_usd': 72.5, 'allowance_usd': 100},
+            'purchased': {'balance_usd': 25}}, 1792309539))
+        self.assertFalse(m._busy)
+        self.assertFalse(m._pending)

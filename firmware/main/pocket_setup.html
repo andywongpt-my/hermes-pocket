@@ -74,13 +74,13 @@ async function request(path,body){
 }
 function updateControls(){
  const blocked=closed||expired||!reachable||actionBusy||pairBusy;
- const running=!!pending||!!snapshot&&snapshot.join_result===1;
+ const running=!!pending||!!snapshot&&(snapshot.join_result===1||snapshot.connection_busy===true);
  const scanning=!!scanPending||!!snapshot&&snapshot.scan_state===1;
  const writable=!!snapshot&&snapshot.store_writable;
  $('join').disabled=blocked||running||scanning||!writable;
  $('scan').disabled=blocked||running||scanning;
  $('pair-save').disabled=blocked||running||scanning||!writable;
- $('cancel').disabled=blocked||!running||!!pending&&pending.kind==='cancel';
+ $('cancel').disabled=blocked||!running||!!snapshot&&snapshot.connection_busy===true&&snapshot.join_result!==1||!!pending&&pending.kind==='cancel';
  $('retry-status').disabled=closed||expired||statusBusy;
  for(const buttons of profileButtons){
   buttons.connect.disabled=blocked||running||scanning||buttons.connected;
@@ -155,6 +155,7 @@ function renderStatus(data){
  const connection=['Wi-Fi is disconnected.','Connecting to Wi-Fi...','Getting an IP address...',
   'Wi-Fi connected.','Wi-Fi network not found.','Wi-Fi password was rejected.','Wi-Fi has no IP address.','Wi-Fi connection failed.'];
  $('connection').textContent=data.connected?'Wi-Fi connected to '+data.ssid+'.':connection[data.connection]||'Checking Wi-Fi status...';
+ if(data.connection_busy===true&&!data.connected)$('connection').textContent='Waiting for Wi-Fi to finish its current connection attempt...';
  $('pairing-state').textContent=data.pairing_saved?'Saved Hermes pairing is preserved. Blank fields keep its stored values.':'No Hermes pairing is saved yet. You can set up Wi-Fi first.';
  renderProfiles(data);renderNetworks(data);finishWifi(data);
 }

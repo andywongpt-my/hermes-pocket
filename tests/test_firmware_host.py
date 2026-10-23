@@ -17,6 +17,8 @@ static pocket_tasks_snapshot snapshots[2];
 static unsigned refreshes,opens,gets,forces,disconnects;
 static unsigned model_refreshes,model_gets,model_disconnects;
 static bool pending_models[2];
+static int64_t poll_clock_ms=1000;
+int64_t esp_timer_get_time(void){return poll_clock_ms*1000;}
 static char wire[8192];
 static bool active_reader;
 static unsigned reader_gets;
@@ -78,10 +80,29 @@ int main(void){
  assert(snapshots[0].view_status==POCKET_TASKS_LOADING);
  pocket_actions_idle(0,&link,wire,sizeof wire);
  assert(gets==before+2 && refreshes==background_refreshes && snapshots[0].view_status==POCKET_TASKS_READY);
- pocket_actions_idle(0,&link,wire,sizeof wire);assert(gets==before+3 && refreshes==background_refreshes+1);
+ pocket_actions_idle(0,&link,wire,sizeof wire);assert(gets==before+2 && refreshes==background_refreshes);
+
+ poll_clock_ms+=120000;pocket_actions_idle(0,&link,wire,sizeof wire);
+ assert(gets==before+3 && refreshes==background_refreshes+1);
+ pocket_actions_idle(0,&link,wire,sizeof wire);assert(gets==before+4);
+ /* Actual status/Usage gates retain monotonic age while checks are skipped. */
+ pocket_actions_view(POCKET_STATUS,1);
+ assert(pocket_actions_poll_due(0)&&pocket_actions_poll_due(1));
+ assert(!pocket_actions_poll_due(0)&&!pocket_actions_poll_due(1));
+ poll_clock_ms+=29999;assert(!pocket_actions_poll_due(1));
+ poll_clock_ms++;assert(pocket_actions_poll_due(1)&&!pocket_actions_poll_due(0));
+ poll_clock_ms+=89999;assert(!pocket_actions_poll_due(0));
+ poll_clock_ms++;assert(pocket_actions_poll_due(0));
+ assert(pocket_actions_usage_due(0));poll_clock_ms+=299999;assert(!pocket_actions_usage_due(0));
+ poll_clock_ms++;assert(pocket_actions_usage_due(0));
+ assert(!pocket_actions_poll_due(2)&&!pocket_actions_usage_due(2));
+ poll_clock_ms=1;assert(pocket_actions_poll_due(0)&&pocket_actions_usage_due(0));
  snapshots[1].entries[0].state=POCKET_TASK_STATE_RUNNING;assert(pocket_actions_poll_ms()==5000);
+ assert(pocket_actions_poll_due(0)&&pocket_actions_poll_due(0));
+ assert(pocket_actions_usage_due(0)&&pocket_actions_usage_due(0));
  snapshots[1].entries[0].state=POCKET_TASK_STATE_UNKNOWN;assert(pocket_actions_poll_ms()==5000);
  snapshots[1].entries[0].state=POCKET_TASK_STATE_COMPLETED;pocket_actions_screen_off(false);assert(pocket_actions_poll_ms()==5000);
+ assert(pocket_actions_poll_target(0)==1 && pocket_actions_poll_due(1) && pocket_actions_usage_due(0));
  active_reader=true;unsigned old_gets=gets,old_models=model_gets;
  assert(pocket_actions_poll_target(0)==1);pocket_actions_idle(1,&link,wire,sizeof wire);
  assert(reader_gets==1&&gets==old_gets&&model_gets==old_models);
@@ -100,6 +121,10 @@ INPUT_FIXTURE = r'''
 #include <setjmp.h>
 static jmp_buf idle_done;
 static bool simulate_idle,hardware_screen_off;
+static bool panel_asleep,tick_asleep;
+static unsigned display_fail,display_count,display_steps[1024];
+static void display_step(unsigned step){assert(display_count<1024);display_steps[display_count++]=step;}
+
 static int64_t clock_ms=1000;
 static pocket_setup_state hardware_setup;
 static pocket_voice_state hardware_voice;
@@ -119,9 +144,13 @@ int64_t esp_timer_get_time(void){return clock_ms*1000;}
 esp_err_t bsp_i2c_init(void){return ESP_OK;}
 esp_err_t bsp_display_init(void){return ESP_OK;}
 void *bsp_lvgl_init(void){return (void*)1;}
-bool bsp_lvgl_lock(int timeout){(void)timeout;return simulate_idle||reader_fake.active;}
+bool bsp_lvgl_lock(int timeout){(void)timeout;return simulate_idle||reader_fake.active||screen_off;}
 void bsp_lvgl_unlock(void){}
-void bsp_display_backlight(unsigned value){(void)value;}
+void bsp_display_backlight(unsigned value){display_step(value?10:1);}
+esp_err_t bsp_display_set_sleep(bool asleep){display_step(asleep?4:5);if(display_fail==(asleep?4u:5u)){display_fail=0;return ESP_FAIL;}panel_asleep=asleep;return ESP_OK;}
+esp_err_t bsp_lvgl_set_sleep(bool asleep){display_step(asleep?3:6);if(display_fail==(asleep?3u:6u)){display_fail=0;return ESP_FAIL;}tick_asleep=asleep;return ESP_OK;}
+esp_err_t bsp_lvgl_repaint(void){display_step(9);if(display_fail==9){display_fail=0;return ESP_FAIL;}return ESP_OK;}
+
 esp_err_t bsp_battery_init(void){return ESP_OK;}
 int bsp_battery_soc(void){return 76;}
 esp_err_t bsp_button_init(bsp_btn_cb_t callback,void *context){(void)callback;(void)context;return ESP_OK;}
@@ -153,8 +182,8 @@ bool pocket_actions_request(unsigned target,pocket_tool tool){assert(target<2);i
 unsigned pocket_preferences_load_target(void){return 0;}
 esp_err_t pocket_preferences_save_target(unsigned target){assert(target<2);saves++;return ESP_OK;}
 void pocket_ui_create(void){}
-void pocket_ui_render(const pocket_ui_view *view){rendered=*view;renders++;}
-void pocket_ui_set_awake(bool awake){(void)awake;}
+void pocket_ui_render(const pocket_ui_view *view){rendered=*view;renders++;display_step(8);}
+void pocket_ui_set_awake(bool awake){display_step(awake?7:2);}
 bool pocket_ui_reader_step(int direction){assert(direction==-1||direction==1);reader_steps++;return reader_fetch;}
 bool pocket_reader_active(void){return reader_fake.active;}
 bool pocket_reader_open(unsigned target){assert(target<2);reader_opens++;reader_fake=(pocket_reader_snapshot){.active=true,.has_page=true,.target=target,.status=POCKET_READER_READY,.page_count=2,.utf8_bytes=4};return true;}
@@ -163,7 +192,7 @@ bool pocket_reader_turn(int direction){assert(direction==-1||direction==1);reade
 void pocket_reader_read(pocket_reader_snapshot *out,char *text,size_t capacity){*out=reader_fake;if(capacity>=5)memcpy(text,"safe",5);}
 
 static void reset(void){
- pocket_clock_reset();wall_seconds=1800000000;renders=0;
+ pocket_clock_reset();wall_seconds=1800000000;renders=0;display_count=display_fail=0;panel_asleep=tick_asleep=false;
  simulate_idle=hardware_screen_off=false;clock_ms=1000;memset(&reader_fake,0,sizeof reader_fake);reader_opens=reader_closes=reader_turns=reader_steps=0;reader_fetch=false;
  pocket_init(&model);memset(&hardware_setup,0,sizeof hardware_setup);memset(&hardware_voice,0,sizeof hardware_voice);hardware_voice.volume=60;
  memset(discard_gesture,0,sizeof discard_gesture);held_buttons=0;screen_off=wake_gesture=false;
@@ -182,6 +211,23 @@ static void fresh_usage(unsigned target){
   .availability=POCKET_USAGE_AVAILABLE,.window_minutes=300,.has_fetched_at=true,.fetched_at=1799999990,.has_expires_at=true,.expires_at=1800000060};
 }
 int main(void){
+ /* Real main.c must sleep the panel/tick, then redraw+drain before lighting.
+    First OK wake and failed/retried wakes must never start a recording. */
+ reset();model.page=POCKET_CHAT;enter_screen_off();
+ assert(screen_off && hardware_screen_off && panel_asleep && tick_asleep);
+ assert(display_count==4 && display_steps[0]==1 && display_steps[1]==2 && display_steps[2]==3 && display_steps[3]==4);
+ unsigned start=display_count;event(BSP_BTN_OK,BSP_BTN_PRESS);
+ assert(!screen_off && !panel_asleep && !tick_asleep && !begins);
+ const unsigned wake_steps[]={5,6,7,8,9,10};
+ assert(display_count==start+6);for(unsigned i=0;i<6;i++)assert(display_steps[start+i]==wake_steps[i]);
+ event(BSP_BTN_OK,BSP_BTN_LONG);event(BSP_BTN_OK,BSP_BTN_RELEASE);event(BSP_BTN_OK,BSP_BTN_CLICK);assert(!begins);
+ for(unsigned failure=5;failure<=9;failure+=(failure==5?1:3)){
+  reset();model.page=POCKET_CHAT;enter_screen_off();display_fail=failure;click(BSP_BTN_OK);
+  assert(screen_off && hardware_screen_off && !begins && !wake_gesture);
+  click(BSP_BTN_OK);assert(!screen_off && !hardware_screen_off && !panel_asleep && !tick_asleep && !begins);
+ }
+ reset();display_fail=4;enter_screen_off();assert(screen_off && hardware_screen_off);
+ click(BSP_BTN_OK);assert(!screen_off && !hardware_screen_off && !panel_asleep && !tick_asleep && !begins);
  reset();simulate_idle=true;int idle_exit=setjmp(idle_done);if(!idle_exit)app_main();
  assert(screen_off && hardware_screen_off);click(BSP_BTN_OK);assert(!screen_off && !hardware_screen_off && !begins);
  for(unsigned blocked=0;blocked<3;blocked++){
@@ -274,10 +320,11 @@ class FirmwareHostTests(unittest.TestCase):
         if not compiler:self.skipTest('host C compiler unavailable')
         root=pathlib.Path(__file__).resolve().parents[1]/'firmware'
         headers={name:HEADERS[name] for name in ['esp_err.h','time.h','esp_log.h','esp_timer.h','freertos/FreeRTOS.h','freertos/task.h','freertos/queue.h']}
-        headers['esp_err.h']+='\n#define ESP_ERROR_CHECK(value) ((void)(value))\n'
+        headers['esp_err.h']+='\n#define ESP_ERROR_CHECK(value) ((void)(value))\n#define ESP_ERR_TIMEOUT 0x107\n'
+        headers['esp_log.h']+='\n#define ESP_LOGW ESP_LOGI\n'
         headers.update({
             'bsp_i2c.h':'#pragma once\n#include "esp_err.h"\nesp_err_t bsp_i2c_init(void);\n',
-            'bsp_display.h':'#pragma once\n#include <stdbool.h>\n#include "esp_err.h"\nesp_err_t bsp_display_init(void);\nvoid *bsp_lvgl_init(void);\nbool bsp_lvgl_lock(int);\nvoid bsp_lvgl_unlock(void);\nvoid bsp_display_backlight(unsigned);\n',
+            'bsp_display.h':'#pragma once\n#include <stdbool.h>\n#include "esp_err.h"\nesp_err_t bsp_display_init(void);\nvoid *bsp_lvgl_init(void);\nbool bsp_lvgl_lock(int);\nvoid bsp_lvgl_unlock(void);\nvoid bsp_display_backlight(unsigned);\nesp_err_t bsp_display_set_sleep(bool);\nesp_err_t bsp_lvgl_set_sleep(bool);\nesp_err_t bsp_lvgl_repaint(void);\n',
             'bsp_battery.h':'#pragma once\n#include "esp_err.h"\nesp_err_t bsp_battery_init(void);\nint bsp_battery_soc(void);\n',
             'bsp_pins.h':'#pragma once\n#define BSP_BTN_COUNT 3\n#define BSP_BTN_MV_RELEASED_MIN 3000\n',
             'bsp_button.h':'#pragma once\n#include "esp_err.h"\ntypedef enum {BSP_BTN_UP,BSP_BTN_DOWN,BSP_BTN_OK} bsp_btn_t;\ntypedef enum {BSP_BTN_PRESS,BSP_BTN_CLICK,BSP_BTN_DOUBLE,BSP_BTN_LONG,BSP_BTN_RELEASE} bsp_btn_ev_t;\ntypedef void (*bsp_btn_cb_t)(bsp_btn_t,bsp_btn_ev_t,void*);\nesp_err_t bsp_button_init(bsp_btn_cb_t,void*);\nint bsp_button_read_mv(void);\n',
@@ -302,6 +349,7 @@ class FirmwareHostTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory=pathlib.Path(temp)
             (directory/'esp_err.h').write_text('#pragma once\ntypedef int esp_err_t;\n',encoding='utf-8')
+            (directory/'esp_timer.h').write_text('#pragma once\n#include <stdint.h>\nint64_t esp_timer_get_time(void);\n',encoding='utf-8')
             source=directory/'actions.c';source.write_text(ACTIONS_FIXTURE,encoding='utf-8')
             binary=directory/('test-actions.exe' if os.name=='nt' else 'test-actions')
             result=subprocess.run([compiler,'-std=c11','-Wall','-Wextra','-Werror','-pedantic','-I'+temp,'-I'+str(root/'core'),'-I'+str(root/'main'),str(root/'main/pocket_actions.c'),str(source),'-o',str(binary)],capture_output=True,text=True,timeout=60)
@@ -352,10 +400,11 @@ class FirmwareHostTests(unittest.TestCase):
         names += ['tools-reader','tools-reader-unavailable','reader-unicode-first','reader-unicode-last','reader-final-block','reader-previous-last','reader-loading','reader-empty','reader-revision-changed','home-after-reader']
         names += ['setup-wifi-testing','setup-wifi-saved','setup-wifi-failed']
         names += ['home-clock-synced','home-clock-offline','home-clock-year-end','home-clock-new-year','home-clock-reconnected']
+        names += ['home-cache-fresh','home-cache-stale','home-cache-backwards','home-cache-stale-offline']
         with tempfile.TemporaryDirectory() as temp:
             out=os.environ.get('POCKET_SNAPSHOT_DIR') or temp
             objects=[]
-            for source in (root/'main/pocket_ui.c',root/'core/pocket_model.c',root/'core/pocket_usage.c',root/'core/pocket_diagnostics.c',root/'core/pocket_clock.c',root/'fonts/lv_font_pocket_cjk_16.c',root/'tests/ui_snapshot.c'):
+            for source in (root/'core/pocket_model.c',root/'core/pocket_usage.c',root/'core/pocket_diagnostics.c',root/'core/pocket_clock.c',root/'fonts/lv_font_pocket_cjk_16.c',root/'tests/ui_snapshot.c'):
                 obj=pathlib.Path(temp,source.stem+'.obj');objects.append(str(obj))
                 built=subprocess.run([compiler,'-c','-std=c11','-O1','-Wall','-Wextra','-Werror',*include,str(source),'-o',str(obj)],cwd=temp,capture_output=True,text=True,timeout=60)
                 self.assertEqual(built.returncode,0,built.stdout+built.stderr)

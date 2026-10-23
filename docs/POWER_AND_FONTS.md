@@ -7,15 +7,31 @@ is consumed through release, so waking with OK cannot start recording.
 The existing manual Screen off action uses the same wake guard.
 
 This is display standby. The processor and network worker remain available;
-remote tasks are not stopped. While the screen is off and no cached task is
-active, the worker waits 15 seconds between alternating target polls instead
-of 5 seconds. It also refreshes the polled target's task list in the background.
+remote tasks are not stopped. The backlight goes dark, the existing LVGL task
+and tick stop under the display mutex, and ST7789 enters Sleep In. The exact
+installed driver waits 100 ms after Sleep In and Sleep Out. Wake restores the
+panel and timers, renders the current view and drains its final SPI transfer
+before restoring the backlight. The first gesture is still consumed. A failed
+wake stays dark and can be retried by another gesture. The BSP rejects task
+suspension until that exact LVGL task has rendered, and never suspends itself.
+
+While the screen is off and no cached task is active, the worker retains its
+15-second wait, but checks the selected target at most every 30 seconds and the
+inactive target at most every 120 seconds. Idle Usage checks are gated to five
+minutes; background task-list discovery to two minutes. A pending selected-view
+request still finishes before another list refresh. Skipped status checks keep
+their previous timestamp. Wake prioritizes the selected target on the next
+worker iteration; an already running request retains its bounded timeout.
+Home qualifies observations at least 45 seconds old as `STATUS STALE`, with
+cached Hermes/Voice rows, rather than treating old success as current readiness.
 A known nonterminal or unknown task keeps the 5-second wait, including when
 its last observation is offline. List and selected-view requests alternate so
 the selected task's backend state continues to advance. Nonselected cached
 tasks conservatively keep fast polling until a later observation resolves them.
-A newly created remote task can take about
-30 seconds plus request time to be discovered while both targets are idle.
+A newly created remote task can take about two minutes on the selected target
+or up to four minutes on an inactive target, plus request and scheduler time,
+to be discovered while both targets are idle and dark. The longer inactive
+bound includes alternating a list refresh with its queued selected-view GET.
 Queued voice commands wake the worker immediately; an already running request
 retains its existing bounded timeout. Each idle cycle closes its HTTP client.
 The defaults are named constants in `firmware/core/pocket_power.h`.
@@ -39,6 +55,18 @@ caps are unchanged; the small display still clips or ellipsizes long replies.
 
 CPU frequency, PM/tickless configuration, TLS trust and hostname validation,
 authentication, server budgets, pairing/NVS and partition layout are unchanged.
+ADC-button polling remains at 5 ms, and CPU power management is not enabled.
+Those need a separate wake-safe design before processor sleep is introduced.
 No battery-life claim follows from these changes: actual battery drain needs
 a controlled measurement, and codec power behavior across a physical voice
 round trip requires an owner-triggered recording.
+
+For the minimum physical comparison, unplug USB, leave Home untouched until
+the screen sleeps, and record starting/ending SOC and elapsed time over twenty
+minutes without voice. Repeat under the same network and battery conditions.
+Battery-side current logging across awake and dark periods can separate true
+load from a gauge/profile issue; USB charging current cannot isolate that load.
+Before delivery acceptance, verify repeated UP/DOWN/OK wakes, a failed/retried
+wake if diagnostics permit, MYT clock catch-up, authenticated Funnel polling,
+and preserved active-task/voice cancellation. These remain physical checks;
+native tests and build success do not establish runtime or endurance savings.

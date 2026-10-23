@@ -748,7 +748,7 @@ class EntrypointTests(ContractBase):
                 self.assertEqual(dict(os.environ), parent)
 
     def test_only_approved_native_command_is_constructed(self):
-        self.assertEqual(producer.NATIVE_COMMAND, ("/opt/pocket-checkpoint/owner/.npm-global/bin/claude", "--safe-mode", "--ax-screen-reader"))
+        self.assertEqual(producer.NATIVE_COMMAND, ("/home/example/.npm-global/bin/claude", "--safe-mode", "--ax-screen-reader"))
 
     def test_default_one_shot_stdout_is_canonical_only(self):
         _, result = self.refreshed()

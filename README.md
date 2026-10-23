@@ -4,20 +4,19 @@ FoloToy AI Passport companion for Windows and Linux Hermes Agent. MIT applicatio
 code, copyright 2026 Andy Wong. Independent community project, not an official
 FoloToy or NousResearch product.
 
-## Source checkpoint, 18 October 2026
+## Source checkpoint, 23 October 2026
 
-This branch preserves work in progress. It is **not a verified firmware release**.
-Publication does not deploy a bridge, activate quotas, or flash a device.
+This branch preserves pending project work without deployment. Root firmware
+contains the later Wi-Fi/clock/Funnel and display-power changes plus the tested,
+unflashed Connecting early-release correction. The consolidated bridge is retained;
+newer quota producers/callbacks and temporary ingress remain separate checkpoints.
 
-| Component | Recorded state |
-| --- | --- |
-| Delivered device | Firmware `2eabc4600d6dc6fc2c2033870ab7121b4e3b0bb4`, restored and verified after the Wi-Fi candidate failed. No device access during publication. |
-| Root firmware source | Five saved Wi-Fi profiles and MYT Home clock from `556e897`, plus the idle-disconnect correction and regression tests. Original candidate failed physical reconnect; corrected source has no physical acceptance. |
-| Root Python bridge | Frozen **bridge018R2**, previously deployed; bounded full replies, paged reading and segmented speech. Its running service was not probed here. |
-| Account quota | **quota020R3**, isolated under `checkpoints/account-quota-020/`; undeployed and unactivated. Producers and operations remain unfinished. |
-| Remote access | Tailscale Funnel is **not configured**. |
+The latest separate live check (23 October, 15:59 UTC) reported the Pocket backend
+inactive, temporary Funnel absent and public HTTP 502; general Hermes was running.
+Publication does not repair that outage or establish a complete voice round trip.
 
-See [checkpoint status](docs/CHECKPOINT-STATUS.md) for precise provenance and limits.
+See [checkpoint status](docs/CHECKPOINT-STATUS.md) for scope, provenance, exclusions,
+current checks, historical hardware evidence and remaining work.
 
 ## Implemented source
 
@@ -48,7 +47,7 @@ python -m pocket.simulator
 ```
 
 Quota checkpoint checks are [separate](checkpoints/account-quota-020/README.md).
-Actual results and platform skips are in [verification](docs/VERIFICATION.md).
+Current results and platform skips are in [checkpoint checks](docs/CHECKPOINT-CHECKS-20261023.json); [earlier verification](docs/VERIFICATION.md) is historical.
 
 See [firmware](firmware/README.md), [bridge guidance](docs/LIVE-BRIDGE.md),
 [replies](docs/BOUNDED_REPLY_DELIVERY.md), [Wi-Fi](docs/WIFI_NETWORKS.md) and

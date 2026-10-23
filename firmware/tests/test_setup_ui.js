@@ -56,6 +56,19 @@ async function join(app,ssid='New network',password='test-password'){
 }
 const accept=(app,operation)=>app.next(()=>Promise.resolve(response(202,{accepted:true,operation})));
 
+test('terminal radio cleanup blocks replacement actions until retirement',async()=>{
+ const app=await boot(state({join_result:4,operation:7,connection_busy:true,
+  profiles:[{ssid:'Synthetic saved',connected:false}]})).start();
+ for(const id of ['join','scan','pair-save','cancel'])assert.equal(app.get(id).disabled,true,id+' must wait for cleanup');
+ await join(app,'Synthetic replacement');assert.equal(actions(app).length,0);
+ assert.equal(button(app,'Connect').disabled,true);assert.equal(button(app,'Forget').disabled,true);
+ assert.match(app.get('connection').textContent,/current connection attempt/i);
+ app.setStatus({join_result:4,operation:7,connection_busy:false,
+  profiles:[{ssid:'Synthetic saved',connected:false}]});await app.tick();
+ assert.equal(app.get('join').disabled,false);accept(app,8);await join(app,'Synthetic replacement');
+ assert.equal(actions(app).length,1);assert.equal(actions(app)[0].path,'/wifi/join');
+});
+
 test('nonce-protected initial status and nonoverlapping 1.5 second polling',async()=>{
  const app=await boot().start();assert.equal(app.calls[0].path,'/wifi/status');
  assert.equal(app.calls[0].options.headers['X-Pocket-Setup'],'offline-test-nonce');assert.equal(app.calls[0].options.cache,'no-store');

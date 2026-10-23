@@ -1,0 +1,1288 @@
+{
+  "base_commit": "e0e7df6efb3cdcbdf460d23b1928e4b103ccf1c7",
+  "firmware_source_commit": "e82f04a5c70384dbf4c99cd88fd9758d06bda1a0",
+  "private_history_uploaded": false,
+  "live_configuration_included": false,
+  "selected_files": [
+    {
+      "path": "firmware/CMakeLists.txt",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "eb9e9318e72fecbb12d5887564e3395b723690892fd79a4e0c5a835b88506734",
+      "published_sha256": "6735635c97a1bc46a226f8c2b9d0e361f2d2132b5e340882d6ada10d5e1c4fac",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/CMakeLists.txt",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "aaf6c28a4fdfbb2f091f65af5ad7112e96b22b993410c05ea25bf3f107f2e992",
+      "published_sha256": "511917f4eb941ff8e5552bab921ffc65c322b090fcf39c052bf2a272267496d9",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/idf_component.yml",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "1ad3f7c6ef54cb8b77de72c2faa203518b9bd9ba1629b0376446ea517efcfeaa",
+      "published_sha256": "a23abb8bf5fe1f86199eb29af4b90b8ed4fc0b8ca5c9aed86a2eca2157f00043",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/include/bsp_audio.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "30847b56df3f1c028f3289d97592c93ffa9eb4cd25e1e550902fece83ed9d2a8",
+      "published_sha256": "3973465ccf95ec56f98e060154df0eedb0a661f1c0798ad32efcc571edca335b",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/include/bsp_battery.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "121e24356fbb7024bb825d0f51c3837fbe4948d3e78924750fa7db20a8f7b324",
+      "published_sha256": "7c0d161dd01b323f19201ded0291fc7ee5cc64d398aa7231a64b6211a71cc6be",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/include/bsp_button.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "bdc1ed6b82c57bc2a73ff4b642fa572982bf25205fc0573a0f93a60fdda35eaa",
+      "published_sha256": "c489a53f03f57c49479aca0f06d529ceea658705953ce6664c19329623831c08",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/include/bsp_display.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "6a54e3b864cdfeeba8f8ee1708cad01cb1fb03aa564832f793fba8b5a355eba7",
+      "published_sha256": "63c336ebaa03089bbdca717c8e1a06018bc1590416153fa35f0e6573187f9b8b",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/components/bsp/include/bsp_i2c.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "0e10b058f7a9d58ac92d9a9b7b4865f7257e75cdb496a758c65f28d050bca2e8",
+      "published_sha256": "0b2e570ca593c4dde791def476c1ab51fcb1cacb122de90fa5b1ff78bd5cc053",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/include/bsp_pins.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "9f59f742368d261fc2f8ece7003ef612252f61c2f97d631367e976f8e98bd8d0",
+      "published_sha256": "d1dce1ad85e7a4406099f59e6fb23b32392932683e881b703d072936a63ff9f2",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/LICENSE",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "cb7ecfa19d8706fb4b499bf519b4395ed134aea2b433786578b3cddbc05a2f6b",
+      "published_sha256": "0ca7f3a382d5d681ced06d6008081c1d51b05a2547c94c3350058efbe7ddb5ee",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_audio.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "a6a5bf7f57bc9bd07e1f7d630d75d888203c263b5697a581e3321639f0c64576",
+      "published_sha256": "8184f095aa76202cd2d398d88953cf770a817b7ccc8c5f36173d9a39f3a9f48f",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_battery.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "db9ea8c3431ce2e6a0d3db137d7f27c05ebc6a2112660d091da2c62778c1b09b",
+      "published_sha256": "3a8781afe1e37ee315a8591680377abcc3706f0cc463d8891fee26a9f1fccb51",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_button.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "ba6079ea984527dbeaa064f1f6abc891d14d63ce016fa37b2ede588e27b6285a",
+      "published_sha256": "dc6fc3b12e57f85e0726101db878b1085a929a2fdb34ad0f68f8d5c9583399e1",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_display.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "895adc6ef80d374e368aefe5f275aff08c73281d93676724747d8487c7cb1556",
+      "published_sha256": "c5fb641afea292781d7102c5aef182e3b650947a0feffeab630484a0084ccfa2",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_display_lvgl.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "4508dda8d34d1bc9716f4064c3cc25e1e1d57508971621907ba585684954c1e5",
+      "published_sha256": "a100c63bb0cc1f03db418c94d32ae83dbab3f59d75b5a47407f618d1545d7cdd",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_display_rounding.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "0cda0e7114d3b92a8da9b45e46285bcdab327b2c21de477a05debec32cbf7bdf",
+      "published_sha256": "06bf1cae13412ba72e976ec6f93dc0891ddd9e676174798fd6bf3ae81f07de90",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_display_rounding.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "05551d34dd175bfd14a0d712c770cc58c1bef9823ea3772b7e8557b1e394580f",
+      "published_sha256": "4f9debc91f6a6b03f7f963ff0727f0bc1eaeb4023f1d9ea276e24da561e90549",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_es8311_sleep_check.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "d08b072761701c4c75fb180dc85e867c8a4cf4cfbcf1f39c41735a69148f53b5",
+      "published_sha256": "ef95e26fab05072d4cc93890b39719de5347084d5da601ef7ce2615fa975f502",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_es8311_sleep_check.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "94a46197fd21faab908ee0fa835a07c28bba11641a2bc397408ccb6e31779c29",
+      "published_sha256": "b2f9c52e17bff40e9c23c9ace051ae47aeb2fca3498400a9982cd18242a2e896",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/components/bsp/src/bsp_i2c.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "63702921318c898956dba7b3307ef27bba83adeda366d445fbf16b0375505272",
+      "published_sha256": "53e6d1dcda8715ef2dfd57134019dadd10aeb5095e24cdac6bec16c2f0c64fbe",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_clock.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "4cd7f5a1e56b8f93d5d7cc1234f28611f697562a8045722c7b29f55a348044d3",
+      "published_sha256": "4cd7f5a1e56b8f93d5d7cc1234f28611f697562a8045722c7b29f55a348044d3",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_clock.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "5379645e7d0eac8986a04bdab8916da812c8624120edf7a2086236a578d0f009",
+      "published_sha256": "5379645e7d0eac8986a04bdab8916da812c8624120edf7a2086236a578d0f009",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_diagnostics.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "e2c7155f66c1ad466f318d57fbd7b386f90a9ca7d758aabb6e51d12e390f092c",
+      "published_sha256": "0ab0cc91ae61c2c2aaeebb17b7647f8d20d9d261c20771f7e1755602caa2f3dd",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_diagnostics.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "4e85e6880ad87cbc6b306cc9426e3232458cc976b57646998d2b0e9b402ef1c9",
+      "published_sha256": "c420d3512c6df34adeb376e37c3c6848f61e2e5e06e2b54fb01150ce6baf994a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_model.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "ec6f728d5799e10998d1edb19a30f0044fbffec609e8fbd14cf5a597170e0431",
+      "published_sha256": "9dd1109adf55f44751be02611bcd85573e46121608aa7db8a7d6a8f3772f4dcc",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_model.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "b20bf15c5f8a31d5a4bace158ec8b58ad15f98367b2a039371e33ff6ef0bc55a",
+      "published_sha256": "ba9ea6764b9a914a95924194e72138df7ba9b6328b704c84d3cc346d334e98c1",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_power.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "8bd55766fe2e2f0413494e0805c32a1cbaf561152008de4f289d06925de8c719",
+      "published_sha256": "8b6ac8f2d6627ea6813702a16531a517a0c7185b57883ed8f169b60ff005829c",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_reminders.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "034070b49f6aeaa6b2c772bd6a23358b094a8c0d22470ca556d23b746a5c177e",
+      "published_sha256": "144c29d1708a3d69a5afe0772a860d032a847db026c58c24f902e3fe858868b1",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_reminders.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "77a42a080349ea685eb03ea76631b46c5d97f0d80ba96ba9f89f92a8c8844051",
+      "published_sha256": "d7e6c95d3672eb66dd1798e7a5264a269f7c618e3d71dfa1de5095ad0f44a388",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_usage.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "2cb8172b3042ef29dd3ee089451ece3db829b7f33d2212f6012c5f0514e9bc23",
+      "published_sha256": "214b2c131cf9e278ba85966e5d42967eee820bd245dac99dcf0da46217936980",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_usage.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "a9d2472dc04f0c821641e93dd017308310fb2d27eb6cfb982d3f2eeff33352e9",
+      "published_sha256": "8dfb3d060c0cb9b34dc7cd525c4c00bcd3dae17e2caaf867b979a862f4cffd20",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_utf8.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "e3f8433b40d1f9d34cd49613480d6b3dfd535e53b486f51dd023365c1a9aed3d",
+      "published_sha256": "fa1852c229c835c1bd4c15f8ee0647b94403b54ee7bba12b14fbb555da169d9c",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/core/pocket_wifi.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "b00b21a43ab2ab81d266ef9db8c25c405580af7999c493b065b89834f7217bb4",
+      "published_sha256": "b00b21a43ab2ab81d266ef9db8c25c405580af7999c493b065b89834f7217bb4",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/core/pocket_wifi.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "444c4316e53b85adf7beb18323c9b7085a2f5f785be5384ce1cbe93f9f02e79c",
+      "published_sha256": "444c4316e53b85adf7beb18323c9b7085a2f5f785be5384ce1cbe93f9f02e79c",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/dependencies.lock",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "5051c875409f0e65dda8d684019591cc3338f4750e21f263ea6d3bc39c4a763d",
+      "published_sha256": "593fa5027afa40e795c4020e894b7da3603651187f215d4e705524db151362fd",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/fonts/lv_font_pocket_cjk_16.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "eb626f4a3d3dd7a151e9a896b4562941f104acd906fd6a36a38a71d2498fda87",
+      "published_sha256": "eb626f4a3d3dd7a151e9a896b4562941f104acd906fd6a36a38a71d2498fda87",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/fonts/lv_font_pocket_cjk_16.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "12896d3c1401a08fc6db1edd86e76ae9ec0e3b0400b92b7a772591f124367208",
+      "published_sha256": "12896d3c1401a08fc6db1edd86e76ae9ec0e3b0400b92b7a772591f124367208",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/fonts/OFL.txt",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "fcac737e761ec63dbfbdce11030a1780161920d80315edba9c8beff1c2bac5a2",
+      "published_sha256": "fcac737e761ec63dbfbdce11030a1780161920d80315edba9c8beff1c2bac5a2",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/fonts/pocket_cjk_16.additions.txt",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "35e6ad129bd95bc086ec22c8a04681bbad98d2882da48f49d36e624541dd5afd",
+      "published_sha256": "35e6ad129bd95bc086ec22c8a04681bbad98d2882da48f49d36e624541dd5afd",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/fonts/pocket_cjk_16.manifest.json",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "0532ce7803c9c0ef6ab02386d7d26fd1a38543266675b0731e5f99b6fda41b2e",
+      "published_sha256": "fdb9f81c5d88d58784fb64027027dff9eb045c6f251d2cdbdaeb6f4c0dc47b8a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/fonts/pocket_cjk_16.target.txt",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "becdfdd912f4782573aa20eee0710cead9fcd2b9bcc1e999c9a0b47414117389",
+      "published_sha256": "becdfdd912f4782573aa20eee0710cead9fcd2b9bcc1e999c9a0b47414117389",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/fonts/README.md",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "59f58b67ec8beb8c408766a2ae10a9d6d292ff5b80419edf9b8a3f9473c42534",
+      "published_sha256": "4f0c92fe7dbcc0dc2a597d6c96f1c3f6396b81de8121338243e520ba0196693f",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/CMakeLists.txt",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "2cdd1c1f26f7c9671655624bcdfee27152b0be4282ad14d2562d726234942b84",
+      "published_sha256": "87093c8bbdff7321cd80b20daee22aaf03ea8c55f3e982e0d3aba9d88dc02378",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/main.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "5e8b0034d7ee5309b196cd3c7bb441377a857b43234492f6419a11ad0f4c7a4d",
+      "published_sha256": "ee2915dd65872e08939f8286b4ae195907a957d6ac710daa65bfb5504012efbb",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_actions.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "d0bad7531599cc348126bb6646c3b18f5eca114b709152dd49cfe38b0fb52512",
+      "published_sha256": "f9431354b7f0f32a53e09b504f4f20b828eeb952501fc2ef35bef9abab446b90",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_actions.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "656166d5ce60f411c3bcf4e21416b8c43d0166419724ef99625534468759f5c4",
+      "published_sha256": "5b54c6fa842fd46a12cbc740afb0a5871a42159b5fbe4eb1cbe47e47d8caa4cf",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_http.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "b2a4a10292a32e40d8c65f37399e4479c56443ad351bf70af6a6ff146244819d",
+      "published_sha256": "513258637f6c22e8c46e715c3357445dcfc8811a695347a87e96eb48c48718ca",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_http.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "961e8d32293aaf89fe3aa08d961276e6cc654a86b493b125d6790f066bc1cd54",
+      "published_sha256": "524a8c3362787720b4b97a4058b984ec00fa4dea48736a776a4663755bde42ff",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_http_timing.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "04ef6d0e6d9c64dbf83d7c6dc1cb7e3c799520a78d534ac0b769d0a515155405",
+      "published_sha256": "ceaf39578c56e13a34f5bb8e7a4f38500cf768571efab28fbe241be0a22c34a8",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_http_timing.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "36a9e4ba58d33f652e1f22d25a2a882f224fb82f43bd350db5087d70e12b5d4d",
+      "published_sha256": "84865a9801e8bc4e0ee17075e410a5262bc0ad3148f7d8b4c45d5dd60de30f7d",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_linux_link.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "f5e039b2a03ab9ddd780652a5a52f7ab75c6871b78c2082be1a11087e55a9f9f",
+      "published_sha256": "842f593d61cfd5875baedbbfaf22d3d03769aa59f1118756f658d51463329393",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_linux_link.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "f13e6f5335ad20b0653aa1ff28a22df709908f302240e8c4a2ec55ed74b87021",
+      "published_sha256": "1ebf95ce59e2f85d4c7aec2f8e65d2a2d06c554406a0671ed6790d36cb90471b",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_models_client.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "b3a2563677a89bacde77c0c9b8b500c938a09159a55361e58337a6389cabc972",
+      "published_sha256": "aab1f5de04d09341140837d2dbc17a50e9e2d5518f07f8e5d5141fdd5172446a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_models_client.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "fb114f01af3b904e7500b55bb8f6b6d69ab4243da909b81e4db8997a231b8c87",
+      "published_sha256": "d1f12c7a58f6fab906426a2613b02f81f9fcabef9664ad85c4dc05db63305a96",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_pairing.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "49ff1ba6d47d5e5f279079148fe514439086bcef34c53c978efef7c60dd9022a",
+      "published_sha256": "49ff1ba6d47d5e5f279079148fe514439086bcef34c53c978efef7c60dd9022a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_pairing.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "66d2f2bd95649a9cef9824afefae35373bfdec6169f27a2bccb80c8bd6f08f2a",
+      "published_sha256": "66d2f2bd95649a9cef9824afefae35373bfdec6169f27a2bccb80c8bd6f08f2a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_preferences.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "14f06840aa308b5d70dd493208e33e3c9e050ad793d06e5328708d1f3faebf26",
+      "published_sha256": "0ad605dee533ec4d382fbd84dd75edd8d2072745dda3d6dfa53a08ad5cea0fcc",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_preferences.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "9bb633a57d9529770b0688adeeefb6a3dbd502b9c316a50ef35fb2761cfa70a1",
+      "published_sha256": "d71e6ce59f66f9e4ce4446c513764c17493cce6ee39934b7b68e1fdd0255b849",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_reader.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "e00fac317657f3159d464f1143e97d285cc90b933db3914ea57dd5b1b7c4f7e3",
+      "published_sha256": "6af36891e32a40158d5b822a5fafba222bbc98b6709a24019c0505d3a1e804d4",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_setup.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "c232377d67e2c5d585daa9f1beee3f5958498f306db46a624a51ba180e72690e",
+      "published_sha256": "983c5cd74ad6571289164c106c428c9e609673d7b4ba5c9c60b54e6e1077828d",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_setup.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "b872e22a4d3ac4a591a2f26328929495f4e79f11b45d1bbc07169a4b72e39ecb",
+      "published_sha256": "fee8886bc5cbaf9216c80aba61c40f0f8058fbd586dca9673dcbe464e66525ad",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_setup.html",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "bc1b0587952248fb19c9647517f0fedbe0a33d1fa1a68ba36bcf71ea8502e33b",
+      "published_sha256": "5943bf109bd55dc5290030b78f9b1d68853e9a29b60240e22b2b74bb7cfaeed5",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_setup_address.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "14fc00a5adddcb7f5ed82531124e286cb1b7a12d7e5066a419c00e533c026f7a",
+      "published_sha256": "56009ffff1c418300b26b3d364b2188acf4099a3a86eda2bfba905e49e49ad87",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_setup_page.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "61493df224ddc041f8796d2f4b74616f08946e2f1bbb850b270802e3c91ade8f",
+      "published_sha256": "d5d884613cf584035062e83116a40a87fa95955da016da919d78438d855374c3",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_speech_client.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "ac5de4adc83392b6936954e63ed74c472d6640a4af226f10831d47abfbbcd443",
+      "published_sha256": "9711855ea18d015645ddc652c6658ffea3f1d50ca062998bcfc922280387851e",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_speech_client.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "fa7d29558bddb4ff44429f61ebbfd1a059579f372ef3d482d9e3719580b46382",
+      "published_sha256": "734a86e78a6247c062ef30050121b1824818cde047d45f71d0b9717ed5f958df",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_tasks_client.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "47e77ae3d5d7fdb0ec1e7fb643d95493c8aaad9308a6fdb1331b93d7b5b447b1",
+      "published_sha256": "6ba000152887d6f884ff1df08158193dfd4856d550fc9f5de21e53329c249854",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_tasks_client.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "f5bde94ec89b2526c8de58cf39190668ac84227246c3c5d4a77a4c41c2297a67",
+      "published_sha256": "7a7baaf4df8ee60f0c9252c125545ed218b3f6ef2cf4ecc053f50db8cdb2e20d",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_ui.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "247982ff9f3e17a5721aa38a7c08188ef83f88403fe899e0465725b2288ba998",
+      "published_sha256": "a18489b25e7d4f825b85e0623f4220452ee721fdf64b2e5a1a0ca233295f9043",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_ui.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "41fe318f99f23a248bc39cc4ee1a932c7f01e65dbed426384c87f71a49f147b8",
+      "published_sha256": "06f19d9c527a8db9728e945710410c4927defdbe3962549d8c000dfccca6251b",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_usage_client.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "27966353fac158b8bb6b4dcd61ff4541bdf1b9b4db4ffb400119b1ef58d2c614",
+      "published_sha256": "e3f59b3efdd0a2d9beab25f52283fda1e2e39d1ec4dfa2f490a070cb308989e9",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_usage_client.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "c0fc937426831f2014879c18cd853b099e79508ce0998e50ebde3c00408e1f84",
+      "published_sha256": "61190ecc83db9067b4b379be994319a0bd3df26d81022618302cca6c0685a1fb",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_voice.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "a026b1b91ea60642564547ac01e0fa0d9952a8f843901ac6b860bd6383f5c144",
+      "published_sha256": "689951ec15aa30d1225693c1d53e035cf654a600fbebcf67f9dc0277c257eb9c",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/main/pocket_voice.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "3137f507642d06e8484bac44f790845fc89059559f4e6794858acd6454c410e1",
+      "published_sha256": "a8f9ec66678251e3d0f519aec408851e9aeed31ffb89b581d0270ac108912f71",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_wifi_store.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "0363155176976d308fd9f62510ce2a1a93bab9518f3f3980241336fb99da93b0",
+      "published_sha256": "0363155176976d308fd9f62510ce2a1a93bab9518f3f3980241336fb99da93b0",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/main/pocket_wifi_store.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "123b907070102f81fe01297c4a2c97f9918586d8d2a185087879e06e765ba183",
+      "published_sha256": "123b907070102f81fe01297c4a2c97f9918586d8d2a185087879e06e765ba183",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/partitions.csv",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "64db21f434b154787c3c9a838e7ee179416d07a9d83ee68a9c713ed8993ad2dd",
+      "published_sha256": "950a9b173c54df7b2263e730c41722ef279155a4b6ccb91a17ea7fbb089af3ac",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/README.md",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "d76250b692c7a15db9ec6b19e8851ea1110d31dfe79a8030c4ae1ad665d49739",
+      "published_sha256": "37454f30319b60e1823c0f12558f09e6921c72868cd96bb6419004ac6aca3481",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/sdkconfig.defaults",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "8eaf1fc1581326e25168ca14bfc1833e1fcb73ea0b118a6da38f038348edd734",
+      "published_sha256": "5290cebf50a31c2c482c2220025b4b6d26bfcd22239d337936422ba19f9f4d7b",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/tests/lv_conf.h",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "f3dc9a1eeb64afc9e7117e0ac30a106c07f4ccb96eeaa6b7b08d88d0a10cc4f5",
+      "published_sha256": "7dc8a4ecdc517acdfe5b2fbdf4dbed21094c0fe1b76b2df31d0a768cdba74df1",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/tests/test_model.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "a290293225f931686201b7fa746de5619750851cf3d9386572163a6362c4a56f",
+      "published_sha256": "2b27a6fcaaf7cc8ae7d2d1f5b159ed17b5727b6fb0320314bc29731175631df5",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/tests/test_setup_address.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "7bedc94c2a01dcb1b42e03c4b3171525a6461d498cb19afb2e992eb74bac090a",
+      "published_sha256": "27ad2efa600f499aaa1ecf3ef06721cf8315991a354dcaf79f3e7440b7624a43",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/tests/test_setup_ui.js",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "1bc50c5d81ca3bc93c7c9d83285c42fd1a2682fdee5d01d6c300216898aab8c3",
+      "published_sha256": "1bc50c5d81ca3bc93c7c9d83285c42fd1a2682fdee5d01d6c300216898aab8c3",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "firmware/tests/test_usage.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "1998191cee1fa5844564a045a4d2a12b2e178c7e4c24d8c2fb96d41244a59d5e",
+      "published_sha256": "26060ed6fbab0893f7ceb46c9672673827674c0614f44162cba252478af4dcd9",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "firmware/tests/ui_snapshot.c",
+      "group": "firmware-e82-with-connecting-fix",
+      "source_sha256": "8b72d19a6f5bd554a15d0324605950ee866da397bee9da8d7070e4bcdef4d6ab",
+      "published_sha256": "2ae897f55f540df89305b10b772db4790c7f0431f0597082cf66f7a387dede27",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tests/test_firmware_audio_drain.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "885d74419eee34a0d36b0f9c4f6d8c4e7dc04819ba0fab16b1ff5ed7393c1896",
+      "published_sha256": "523bc425c3b9b3ec6007e65639e1b656f89d5444fc2a5d5eaf6e66315f7e986c",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_clock.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "10455c31c9032a1a7b8a69bb36fb5a676d5fae6035137cba8278163aa4fdb18b",
+      "published_sha256": "10455c31c9032a1a7b8a69bb36fb5a676d5fae6035137cba8278163aa4fdb18b",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_diagnostics.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "d64fc0384092413711de3b8ed3fd73f78462a3ccc22c1206eb48a179ffc9b2f4",
+      "published_sha256": "2d5654c446be245352f0160ce5253ce97a2c8a517e0d8b6546492418921e328a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_display_power.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "3e5e32147c0ff998249348f505f9bf519f2d59df99942b617c607ede8f4d3a11",
+      "published_sha256": "3e5e32147c0ff998249348f505f9bf519f2d59df99942b617c607ede8f4d3a11",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tests/test_firmware_font.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "17d6b23237d25a177caf7722dd20e3aa11e159324d46c570c601c06b1859b174",
+      "published_sha256": "35fcc091793f8b34285c71805e03639c1927fee3cb4708896ba3f1aa022b3867",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_host.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "5c9546e44dec590900cd923443e13b0e7988400875ec0b82d3209fb21d261656",
+      "published_sha256": "257b822d20b31a8f2491faa8410cc4bc501be8d8e629da3345828798148d0259",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tests/test_firmware_http.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "986ceb39cb2ff50aa7a53ba1f39a44ca9c6a75a34e15bbf1eb0a21266a425028",
+      "published_sha256": "749286ef2b8e51b8132ec375d0064500a3b372240fb5bd7a0381a1e4fc01c305",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_http_timing.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "6a23553787156321aeb4a38a50f0f94c7ff12beee34dfac38997d38bc7e5331b",
+      "published_sha256": "612e07e53eed3e46cf3cb7be5946ca98afdef0e1c1c8b7ec3964dba2f58043f8",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_linux_link.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "1ef85acb0f1a1e4fdeeb14c0ee49afcba82ab6ae7eab5ab9ad857cb87d5a93d7",
+      "published_sha256": "4bd5473d0ebb9abb57999e2fe6a08d6574b555028e65e32cb7dcd0a70726c131",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tests/test_firmware_model_selector.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "64471d8b9f68e4f93298c63acb042f8819d16e0ada197e8627be2490b667b1ff",
+      "published_sha256": "c769c31ed689edf12f40bd710b9fdcb3ed530a5dd9259fc87f6d9bf6fcbddc34",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_preferences.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "c9c1a3088253bbb9fe10a657740a9da92dceadc0af86621d169b4abbad41d245",
+      "published_sha256": "aab2e5b9850697c7f76519d7dfe29eaac9e8bf98f47fe9a3b98a4a1633533f02",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_reader.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "07fcf8020bc6532037a2f37f4060aaa782baf1e6743223d0e4f60028c540e03f",
+      "published_sha256": "f1adaa05cf061095ad0117219b44603dc3089adc9c11b5e3bd6b3a9d9d354d7a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_reminders.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "7632a8b26b0eb8fedceeaac30d8a1594a04391eb9add2317791a0dbb8555d04c",
+      "published_sha256": "ea68812f03829e5ceca21e7bae8d4f770ca76d6461a75f9c06afb30695386e9a",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_setup.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "2b381e3e2664286921cb53f4394e41f059c53f83ddd14dc2233759d204ed7f15",
+      "published_sha256": "ed10ee5b3c8de89b48bca684d28cd3bf264031c2cacdf7f6a1cfb37b2e5068dc",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tests/test_firmware_setup_ui.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "4dcc541479ce55427e1b47bef698f00fc1a33f4a801259aa0fdcdf66b62d047e",
+      "published_sha256": "4dcc541479ce55427e1b47bef698f00fc1a33f4a801259aa0fdcdf66b62d047e",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_speech_v2.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "c39716a50840c5f373d599d66c22352c339a1d20e3bb8c682c08a5a67250cb08",
+      "published_sha256": "dce2569f4077142482782fffcdcc4316f789ad94a5bfbf9ca37021a7e40ee8c9",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_tasks_client.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "de9d3814de320abd392e58ad3155f53e5e1c0d1be2923fc71bcd39b712ecf98c",
+      "published_sha256": "00b922be01b6e4fcbade040a45345702927966e0e173956c027de1fd091280c4",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_usage_client.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "3fd423d4882198d20aa92693a4c4302a6e2468cd8a2030e840619df239e24480",
+      "published_sha256": "bfd5120827e206302dc11ee1cec4b3629776830b17500690589df263531743b2",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_usage_core.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "fb4c793a2dfdd1076e990ae1ae7070ac2e29d428392d2cd7570f75cffc2e6ebd",
+      "published_sha256": "b6787a298dfa1a2b9dff23df3724837fd380cebe950635e8e4f0cd9127d6462d",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_utf8.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "03ba10194fb890c30a16b5848f6f13cf5be6a7caec8ca974834988c513fb4478",
+      "published_sha256": "666147f95e9b7f1862651a688eba2561f407c3e6a119d670a9e08612df62a934",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_voice.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "faf7fd05cb69e74703afa44883b4310168170db4d1e8430e709eff5cdc7da9a8",
+      "published_sha256": "f529a1ceb952bcaf48ae114a4a0260e6cba5b8a63638edf9e7dd3068fd758601",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tests/test_firmware_voice_scratch.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "567574f4351f72f78413fde3f5a1b0cc1b2eec13ea4940949807db9328763d3d",
+      "published_sha256": "9300592a7db730ad31dd6b424b97084565eb2caca2d9c205351ed44ebc1986f5",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_firmware_wifi.py",
+      "group": "firmware-e82-tests",
+      "source_sha256": "f708ba8035a62d59908b73021e8b0b942fdb04b0a895fcb253f720216733b248",
+      "published_sha256": "f708ba8035a62d59908b73021e8b0b942fdb04b0a895fcb253f720216733b248",
+      "sanitized": false,
+      "changed_from_checkpoint": false
+    },
+    {
+      "path": "tests/test_connecting_release.py",
+      "group": "connecting-regression",
+      "source_sha256": "078b7c736173e8f6b8e9004797608de77e8deb3c5ee116b18a637aff3b042197",
+      "published_sha256": "078b7c736173e8f6b8e9004797608de77e8deb3c5ee116b18a637aff3b042197",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "docs/POWER_AND_FONTS.md",
+      "group": "firmware-documentation",
+      "source_sha256": "a0a2d84cfec1aee63a1de2abb69d2d8c69626871ce5262a68cb310bd373e2f72",
+      "published_sha256": "e85f6dd30ab7dfda7cbd7d823a8c382ec5fde9fde5074ad75270f10be4dd97ef",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "docs/WIFI_NETWORKS.md",
+      "group": "firmware-documentation",
+      "source_sha256": "8eda5e19eaea7b4e2c32184ab38e55c1ff58b208300ed4cb9d00b273b3d00d5e",
+      "published_sha256": "8eda5e19eaea7b4e2c32184ab38e55c1ff58b208300ed4cb9d00b273b3d00d5e",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-18-wifi-clock-funnel.md",
+      "group": "firmware-documentation",
+      "source_sha256": "5bfed6d0b65ff006c3699d9438aee67d36d248f37757777661c41624c0797636",
+      "published_sha256": "40eb2f710c4be8d4e0f057c4a94556146b63c704f36d53526d62e8aa087f045f",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "docs/checkpoints/FIRMWARE-20261018.md",
+      "group": "historical-firmware-verification",
+      "source_sha256": "2c00ad1ec84c33a6da6c8cc8e179910681cfd6221fcf3851b09d1b129b65a47d",
+      "published_sha256": "6d84f2e2d37ede89b20af690ff06b6427e547226b9072602b682a9fd1ad5aa6f",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/claude_statusline_quota_020.py",
+      "group": "quota-claude-final-adapter",
+      "source_sha256": "9030e20d6dc213dab4709eb941cf2fbeb00b297a2427aa29d5e68e59ea2ff9b5",
+      "published_sha256": "64cb7089e3b982b2b9c20abf57273d4453e69d1e7715829c06f1bbb4c4685868",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/official_claude_usage.py",
+      "group": "quota-current-source",
+      "source_sha256": "68913cd1980684709cfb1305343efa87f92000d21e96da18221c5cd06c50ee59",
+      "published_sha256": "701babb79c82375851f60fe5d1a9cf7e17b1cb48d2b14209e1034ee4309341de",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/official_codex_quota.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "932ffa579860a91f37d2a84cd1e612fb9fd97a5a729b443e19ea5478335c778c",
+      "published_sha256": "932ffa579860a91f37d2a84cd1e612fb9fd97a5a729b443e19ea5478335c778c",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/ollama_managed_balance_020.py",
+      "group": "quota-current-source",
+      "source_sha256": "d094cbd6fbb6f0733d803f4a7ddcfa6cad468386add297fdfe230ef0ac544a0c",
+      "published_sha256": "a1bed7b25b67e7cae78354b49005a61bfbbaf4e1d392e0df6ea6204940978659",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_claude_statusline_quota_020.py",
+      "group": "quota-claude-final-adapter",
+      "source_sha256": "fef3891769262f52b04f36202c356e9a892e8dc5b7b0a5d49148a2302dbc0587",
+      "published_sha256": "fef3891769262f52b04f36202c356e9a892e8dc5b7b0a5d49148a2302dbc0587",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_official_claude_usage.py",
+      "group": "quota-current-source",
+      "source_sha256": "3afcf14b2b8992fe9385de5f9f347ea236b0f5d628c3d0c3861a220dbe659f45",
+      "published_sha256": "2b94a6f8b709719e04cd93c8e334246c423f8f3829a18c972719693862ea63cc",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_official_codex_quota.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "8725cc0f9ae5221e989e399ca768b10d57405c98b9f414ee054965c13bb23eb0",
+      "published_sha256": "8725cc0f9ae5221e989e399ca768b10d57405c98b9f414ee054965c13bb23eb0",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_ollama_managed_balance_020.py",
+      "group": "quota-current-source",
+      "source_sha256": "5fb32bdb6acf261d092cca91a2e6a4ec82ee401f45928020b4d0ca0d189b186b",
+      "published_sha256": "206dab9b5302243cb7a2a42c4dc6b6a531890e1f28b9225467bf4f0de17cc952",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_quota_ops_020.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "77d5e1dfdae767ac65aa773a6cd1d62a747ae5894a18d4e13935d9d5f5459bf7",
+      "published_sha256": "456cfbcea49b6ef33316055b25188ce18214169a1e603d6a84ef8fb28b94b33c",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/make_acceptance_020.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "6e35526b964ceb9a805007c4d1e8012e00edefafa7f73cfbf248b61de753cecd",
+      "published_sha256": "c18f8943bd4c5a019f010e2d061281f231c03de9b2bfe3250281ebc90332bfe6",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/native_aw_qualification.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "264215065991d726e2a9052e698e494c8de11cf1de95ebeab352cae41bb3a3ea",
+      "published_sha256": "59b82efe34d68a1718d76eaaf60b623e01e82e2447f2cf06575865d905a2cc25",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/native_aw_supervisor.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "8a0fbe92fb0e3c84845f8cd24e67f137cb6e770668b09b46adf5b037ad067231",
+      "published_sha256": "7128e501a441a690db1caea86e49ba3daefa0f58e26a8a2d0b30491af66fbbea",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/operate_quota_020.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "3164f74a36528ac1de4450f3c47fd8bc383dd4f1324ea41aff8689e9ee8a3f81",
+      "published_sha256": "88f7aed8962d40b738385366ed0b0186dca982de5fce1fc906a2f1a6bcdf8157",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/private_aw_020.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "f4d24194ff687a6f79362f89dead89c9b76773d4f61ffd86de4539850bf8a1f6",
+      "published_sha256": "59d45d46c88ebdd6cb99953c10661147860dcdafffbf5e549674c01c4f3fc1f9",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/quota_refresh_020.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "fe689eb8863019faf9f601ac0681863a0026d494e1d95bab0b59e277bbe8983a",
+      "published_sha256": "3c5c55acda33cd87df7412294e895d9f721a477a1a38bfba29f249723a5a67e8",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/quota_remote_020.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "a9a0dbdfdf359dd8bc1efb07367f44ed7fe5bac33d99032ddcb639c4c7c3730f",
+      "published_sha256": "36a5bfaae72e6d53d80d2becce95ae4ab08ef78b65327cc9b7a82476d8b19c78",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_native_aw_qualification.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "71ac4722d3dff48e4ebcb1a7361fac0a5e601bba58aa5585010fe9e37fd224d2",
+      "published_sha256": "6290850458f9b935bad533ba4548fe729d268c06884c48c845373c087e207679",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_native_aw_supervisor.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "cf397f598fb57ba7537d1b6a29c741149a9185a79a810d47e97c2d1ed7a5cfa4",
+      "published_sha256": "e2edba238a937d6a9999dd78d745d48b49f6c74bdf5284f5cc5c4cad46394b8d",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_r3_preserved.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "2342c80aeb747ecbf23dac61577f1ee306c2f7081f7460677a21541e16d87468",
+      "published_sha256": "64d9778c7d31bec37631b53de39151a9fc10e845fcc5d5c79bdb8ff2a6801dce",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_split_proof_020.py",
+      "group": "quota-codex-native-r3",
+      "source_sha256": "66d31f456ac495de152b299c7d7f900389dc3caac841cedf8598030b40ff79be",
+      "published_sha256": "680b685db0f8df4d865d9b163b0548eea7b65450be5466f9e896868726a822f1",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/NATIVE-RUNBOOK.md",
+      "group": "quota-native-runbook",
+      "source_sha256": "c45a803be455c760a30579b6c7dcabce8e755675a0b285efcf18752b231925ec",
+      "published_sha256": "c118a158fb450213aab3b19e7812dbee2ddfa663f001b83574ab3de0b866d698",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/claude_aw_020.py",
+      "group": "quota-claude-passive",
+      "source_sha256": "0d3f10096781aac3da60b73d340f5bb464b70d54346ec070eb5b39f3fda163c4",
+      "published_sha256": "0d3f10096781aac3da60b73d340f5bb464b70d54346ec070eb5b39f3fda163c4",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/claude_remote_020.py",
+      "group": "quota-claude-passive",
+      "source_sha256": "be8838bd7aac1ed5c74a10477dda9e0290474f3638bf73c47cef4614f3ed94d8",
+      "published_sha256": "2979a9b68d4bd23214ceb322b8705206ff3eda497ffdd574c1b577203fd2a486",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/claude_settings_020.py",
+      "group": "quota-claude-passive",
+      "source_sha256": "98c31280292fb0d9c0292f7ffe2348585aa0e1d3853388cbd009a91b3100e230",
+      "published_sha256": "98c31280292fb0d9c0292f7ffe2348585aa0e1d3853388cbd009a91b3100e230",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_claude_aw_020.py",
+      "group": "quota-claude-passive",
+      "source_sha256": "53395ef266cb79388c2f6b0b240102932fd4d1932d58bd92066c9ec27fb09603",
+      "published_sha256": "53395ef266cb79388c2f6b0b240102932fd4d1932d58bd92066c9ec27fb09603",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_claude_remote_020.py",
+      "group": "quota-claude-passive",
+      "source_sha256": "0946d0a52a127b5e23b56394e1ac60fb5529bd2aa068f7f9abb4f4f8774bc5b2",
+      "published_sha256": "0946d0a52a127b5e23b56394e1ac60fb5529bd2aa068f7f9abb4f4f8774bc5b2",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_claude_settings_020.py",
+      "group": "quota-claude-passive",
+      "source_sha256": "d36bc41b5d55522d190da18859e7448fce4c7b4d6c2b1b7f963dc3ec96448f92",
+      "published_sha256": "d36bc41b5d55522d190da18859e7448fce4c7b4d6c2b1b7f963dc3ec96448f92",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/claude_callback_020.py",
+      "group": "quota-claude-callback",
+      "source_sha256": "1d579d2cdbb445e43656e4876ecdbe467ee6df5f6bafa46fd472c5b5e56274e8",
+      "published_sha256": "1d579d2cdbb445e43656e4876ecdbe467ee6df5f6bafa46fd472c5b5e56274e8",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/test_claude_callback_020.py",
+      "group": "quota-claude-callback",
+      "source_sha256": "9b25a3ec59265786a50a0952b4f0778b271698149092acca09e160eff7351a38",
+      "published_sha256": "c1259ffa2ab7365bc1014ffb38b075144c62c60bd01d77ccefca5f5f30ad5e7d",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/account-quota-020/control_meow_020.py",
+      "group": "quota-meow-controller",
+      "source_sha256": "f87b9a218e9be6981b9c0554dfcfd58a1d110ee0189e2580256f5bcc722c98d3",
+      "published_sha256": "8408a5d4973d53befdef640947f6ff5e2b7e2d43fe21e3a53044d0089e8cdbc4",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/temporary-funnel-021/pocket_funnel_021.py",
+      "group": "temporary-funnel-source",
+      "source_sha256": "50accef11954585c15f7e3beff51264634ebe0f92ae0c5f5a14550fd6e0800e7",
+      "published_sha256": "10603f33c4f8822dd40b2e18e093337e60a00b86aad01b47b9da12f4d25d2230",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/temporary-funnel-021/test_pocket_funnel_021.py",
+      "group": "temporary-funnel-source",
+      "source_sha256": "df2b3b28889e8d4fddfc4e578fef578c4d46aba6df583f85967e8fed57f82366",
+      "published_sha256": "2adb3de185ab47b97d2f15641f4e966c5ed691d47334f204a7052af9fe8f274e",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/temporary-funnel-021/test_funnel_proxy.py",
+      "group": "temporary-funnel-source",
+      "source_sha256": "6ec76fe1d67fbcf554d67cb837667d3eb51fcee60c4684b968e5868f740a9b0c",
+      "published_sha256": "cc9a4dab32ce9cc379a2e49b36edfc4c2985dafc25deb44b3585ca4e228ed694",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/temporary-funnel-021/nginx.conf.example",
+      "group": "temporary-funnel-example",
+      "source_sha256": "acfc9ee2bf745d2ce895af928e1d1f1537f4032d8f856e0338be8243b68f5065",
+      "published_sha256": "269569c0c0ccad53e715c1177112e8d20668b24710fabf3e892ed67b7d93d1a4",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/legacy-pending-20261015/patches/hermes-pocket/pocket__linux_voice.py.patch",
+      "group": "legacy-draft-patch",
+      "source_sha256": "16ed2530e1e24d805d380df430a65c11dd3465e621fb7c81cb6ecc612a3e7249",
+      "published_sha256": "16ed2530e1e24d805d380df430a65c11dd3465e621fb7c81cb6ecc612a3e7249",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/legacy-pending-20261015/patches/hermes-pocket/pocket__server.py.patch",
+      "group": "legacy-draft-patch",
+      "source_sha256": "46065d8a980f18696ff03c77a1d2fb116be1487cb583f89f4abada861c76730c",
+      "published_sha256": "46065d8a980f18696ff03c77a1d2fb116be1487cb583f89f4abada861c76730c",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/legacy-pending-20261015/patches/hermes-pocket/pocket__service.py.patch",
+      "group": "legacy-draft-patch",
+      "source_sha256": "48ed65221ceb0858e86649a059fc124cf6f5e001c92ce5457d21d3930686981b",
+      "published_sha256": "48ed65221ceb0858e86649a059fc124cf6f5e001c92ce5457d21d3930686981b",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/legacy-pending-20261015/patches/HPusage-integration-20261015-001/docs__protocol.md.patch",
+      "group": "legacy-draft-patch",
+      "source_sha256": "93d2fd9792b7b60c4334b866709ad2b5e659e48cfd354b427017fead67f3ef4a",
+      "published_sha256": "93d2fd9792b7b60c4334b866709ad2b5e659e48cfd354b427017fead67f3ef4a",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/legacy-pending-20261015/patches/HPusage-integration-20261015-001/firmware__main__pocket_voice.c.patch",
+      "group": "legacy-draft-patch",
+      "source_sha256": "a8d3b47820fa6ea175cea80522964bafc240b58b5edb00d40a6612a6a4660f49",
+      "published_sha256": "a8d3b47820fa6ea175cea80522964bafc240b58b5edb00d40a6612a6a4660f49",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/legacy-pending-20261015/patches/HPusage-integration-20261015-001/tests__test_firmware_voice.py.patch",
+      "group": "legacy-draft-patch",
+      "source_sha256": "400ff992a24601cb5f60416cced56a820913c7cf7a25e3d495038ff8a84f47ea",
+      "published_sha256": "400ff992a24601cb5f60416cced56a820913c7cf7a25e3d495038ff8a84f47ea",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "checkpoints/legacy-pending-20261015/synthetic_transport.py",
+      "group": "legacy-diagnostic-source",
+      "source_sha256": "86382e1e07fb4af8494caa489fce8396f75606468a13fa35b66f86779de2a136",
+      "published_sha256": "76632c4a6a33e27d5a19c1e2a45e6551f14474f7b16f0cc448f47fbf1c330d0a",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-15-pocket-controls.md",
+      "group": "legacy-plan",
+      "source_sha256": "f7cf73dfa6d5a14b50e475a24939b2cbcd0fe0c56324756a1fd1eff24b90caf1",
+      "published_sha256": "f7cf73dfa6d5a14b50e475a24939b2cbcd0fe0c56324756a1fd1eff24b90caf1",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-15-voice-scratch-reuse.md",
+      "group": "legacy-plan",
+      "source_sha256": "eaeb788129bc812650eda9a719b50070c1c5c95c07d102ec576098a581137649",
+      "published_sha256": "eaeb788129bc812650eda9a719b50070c1c5c95c07d102ec576098a581137649",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tools/diagnostics/sanitize_serial_stream.py",
+      "group": "sanitized-serial-reproduction",
+      "source_sha256": "ba038dca1c005d7d484ebedfc4b7fc39019380562a5648807272576922dbbc0d",
+      "published_sha256": "e55767f11c0fe145e442154aebc7d3630d2708d837f40dbb37ce93851f010b43",
+      "sanitized": true,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tools/diagnostics/sanitize_connecting_state.py",
+      "group": "sanitized-serial-reproduction",
+      "source_sha256": "1c414b81d7ce42ce57eaa64a8dac2111459a0b1bd7173184e26b4080328cb08a",
+      "published_sha256": "1c414b81d7ce42ce57eaa64a8dac2111459a0b1bd7173184e26b4080328cb08a",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    },
+    {
+      "path": "tools/diagnostics/capture_connecting_state.ps1",
+      "group": "sanitized-serial-reproduction",
+      "source_sha256": "709d2b1b3fb6ad472b05f43f42ad9c650e683d3b695c916e7c56b7d70e604e0d",
+      "published_sha256": "709d2b1b3fb6ad472b05f43f42ad9c650e683d3b695c916e7c56b7d70e604e0d",
+      "sanitized": false,
+      "changed_from_checkpoint": true
+    }
+  ],
+  "sanitization_exception": "192.168.4.1 is the standard setup-AP protocol gateway, not a private deployment endpoint; it is preserved in functional setup instructions.",
+  "publication_review": {
+    "blocking_findings": 2,
+    "resolved": [
+      "Restored the standard setup-AP gateway after overbroad address sanitization.",
+      "Labeled firmware flash/readback observations historical; current Connecting correction unflashed."
+    ]
+  }
+}

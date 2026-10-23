@@ -14,7 +14,7 @@ import sys
 import quota_remote_020 as ops
 
 ROOT = Path(__file__).resolve().parent
-MODES = ('validate', 'stage', 'test', 'accept', 'inspect', 'deploy', 'activate', 'verify', 'rollback')
+MODES = ('validate', 'stage', 'test', 'accept', 'inspect', 'deploy', 'activate', 'verify', 'rollback', 'prepare')
 PHASE = {'deploy': 'deployment', 'activate': 'activation', 'rollback': 'rollback'}
 
 
@@ -27,13 +27,13 @@ def outcome_code(value):
 
 def ssh_argv():
     return ['ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
-            '-o', 'ConnectTimeout=5', 'pocket-host.example.invalid', '/opt/pocket-checkpoint/owner/.hermes/hermes-agent/venv/bin/python', '-B', '-']
+            '-o', 'ConnectTimeout=5', 'pocket-host', '/home/example/.hermes/hermes-agent/venv/bin/python', '-B', '-']
 
 
 def make_stage_payload(root):
     root = Path(root)
     bodies = {name: ops.read_file(root / name) for name in ops.OFFLINE_FILES}
-    for name, expected in ops.BACKEND_PINS.items():
+    for name, expected in {**ops.BACKEND_PINS, **ops.QUALIFICATION_PINS}.items():
         ops.require(hashlib.sha256(bodies[name]).hexdigest() == expected, 'backend_binding')
     plan = {'version': 1, 'fixture_only': True, 'backend_identity': ops.BACKEND_IDENTITY,
             'backend_pins': ops.BACKEND_PINS,
@@ -44,6 +44,8 @@ def make_stage_payload(root):
 
 def make_acceptance_payload(root):
     bundle = ops.validate_bundle(root)
+    import private_aw_020 as private
+    private.validate_aw_bundle(root, bundle)
     stage = make_stage_payload(root)
     bodies = {name: ops.read_file(Path(root) / name) for name in ops.bundle_files(bundle)}
     bodies[ops.STAGE_MANIFEST] = base64.b64decode(stage['files'][ops.STAGE_MANIFEST], validate=True)
@@ -65,7 +67,7 @@ def build_script(mode, payload, root=ROOT):
 raw=base64.b64decode(@@SOURCE@@,validate=True)
 if hashlib.sha256(raw).hexdigest()!=@@DIGEST@@ or not sys.platform.startswith('linux'):
  print(json.dumps({'ok':False,'category':'bootstrap_rejected'}),flush=True);raise SystemExit(1)
-scope={'__name__':'quotaops_bootstrap','__file__':'/opt/pocket-checkpoint/owner/.hermes/pocket/gateway-only-20261015/staging/account-quota-020-ops/quota_remote_020.py'}
+scope={'__name__':'quotaops_bootstrap','__file__':'/home/example/.hermes/pocket/gateway-only-20261015/staging/account-quota-020-codex-ops-r3/quota_remote_020.py'}
 exec(compile(raw,scope['__file__'],'exec'),scope)
 try:
  payload=json.loads(base64.b64decode(@@PAYLOAD@@,validate=True))
@@ -77,6 +79,7 @@ try:
  elif mode=='accept':value=scope['stage_acceptance'](payload)
  elif mode=='inspect':value=scope['inspect_stage']()
  elif mode=='verify':value=scope['verify']()
+ elif mode=='prepare':value=scope['prepare_codex']()
  else:value=scope['dispatch']({'deploy':'deployment','activate':'activation','rollback':'rollback'}[mode])
 except Exception as error:
  value={'ok':False,'category':str(error) if isinstance(error,scope['OpsError']) else 'operation_rejected'}
@@ -102,7 +105,7 @@ def main(argv=None):
     try:
         mode = args.mode
         bundle = None
-        if mode in ('validate', 'accept', 'deploy', 'activate', 'verify', 'rollback'):
+        if mode in ('validate', 'accept', 'deploy', 'activate', 'verify', 'rollback', 'prepare'):
             bundle = ops.validate_bundle(ROOT)
         if mode == 'validate':
             value = {'ok': True, 'acceptance_sha256': bundle['acceptance_sha256'], 'execution_performed': False}

@@ -7,11 +7,13 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+/* Include the real custom-drawn UI once to inspect its row strings/colors. */
+#include "../main/pocket_ui.c"
 
 #define W 240
 #define H 320
 #define RADIUS 30 /* BSP_LVGL_SCREEN_RADIUS: the panel shows black outside it. */
-static uint16_t frame[W*H];
+static uint16_t pixels_frame[W*H];
 static uint32_t now_ms;
 static uint32_t tick(void){return now_ms;}
 static void flush(lv_display_t *display,const lv_area_t *area,uint8_t *pixels){(void)area;(void)pixels;lv_display_flush_ready(display);}
@@ -29,7 +31,7 @@ static int save(const char *directory,const char *name){
  PUT32(2,size);PUT32(10,54);PUT32(14,40);PUT32(18,W);PUT32(22,H);header[26]=1;header[28]=24;PUT32(34,row*H);
  fwrite(header,1,sizeof header,file);
  for(int y=H-1;y>=0;y--)for(int x=0;x<W;x++){
-  const uint16_t c=outside(x,y)?0:frame[y*W+x];
+  const uint16_t c=outside(x,y)?0:pixels_frame[y*W+x];
   const uint8_t bgr[3]={(uint8_t)((c&31)*255/31),(uint8_t)(((c>>5)&63)*255/63),(uint8_t)((c>>11)*255/31)};
   fwrite(bgr,1,3,file);
  }
@@ -107,9 +109,21 @@ static void assert_reader_fits(void){
  lv_text_get_size(&size,lv_label_get_text(body),lv_obj_get_style_text_font(body,LV_PART_MAIN),0,lv_obj_get_style_text_line_space(body,LV_PART_MAIN),200,LV_TEXT_FLAG_NONE);
  assert(size.y<=166);
 }
+static void assert_home_freshness(pocket_ui_view view){
+ if(view.page!=POCKET_STATUS||view.setup_active||view.reader_active||!view.diagnostics||!view.diagnostics->checked)return;
+ const int64_t age=view.uptime_ms-view.diagnostics->checked_ms;
+ if(age<0||age>=45000){
+  assert(!strcmp(row_items[1].value,"Cached")&&!strcmp(row_items[2].value,"Check status"));
+  assert(row_items[1].dot==AMBER&&row_items[2].dot==AMBER);
+  assert(!strcmp(lv_label_get_text(badge),view.alert_pending?"USAGE ALERT":"STATUS STALE"));
+ }else if(view.online&&view.speech_ready){
+  assert(!strcmp(row_items[1].value,"Available")&&!strcmp(row_items[2].value,"Ready"));
+ }
+}
 static int shot(const char *directory,const char *name,pocket_ui_view view,uint32_t ms){
  pocket_ui_render(&view);advance(ms);
  assert_usage_labels(view);
+ assert_home_freshness(view);
  /* Expanded Usage rows must fit inside the card. Returning Home restores the
   * compact dimensions, with no collision with the badge or bottom controls. */
  if(!view.setup_active&&(view.page==POCKET_USAGE||view.page==POCKET_STATUS)){
@@ -134,7 +148,7 @@ int main(int argc,char **argv){
  lv_init();lv_tick_set_cb(tick);
  lv_display_t *display=lv_display_create(W,H);
  lv_display_set_color_format(display,LV_COLOR_FORMAT_RGB565);
- lv_display_set_buffers(display,frame,NULL,sizeof frame,LV_DISPLAY_RENDER_MODE_DIRECT);
+ lv_display_set_buffers(display,pixels_frame,NULL,sizeof pixels_frame,LV_DISPLAY_RENDER_MODE_DIRECT);
  lv_display_set_flush_cb(display,flush);
  pocket_ui_create();
  lv_font_glyph_dsc_t glyph={0};
@@ -333,6 +347,11 @@ int main(int argc,char **argv){
  v.setup_message="Testing Wi-Fi; old networks retained";failed|=shot(out,"setup-wifi-testing",v,240);
  v.setup_message="Wi-Fi saved. Check Hermes on Status";failed|=shot(out,"setup-wifi-saved",v,240);
  v.setup_message="Join failed; restoring saved Wi-Fi";failed|=shot(out,"setup-wifi-failed",v,240);
+ pocket_diagnostics cached={.checked=true,.checked_ms=1000,.backend_available=true};
+ v=base;v.diagnostics=&cached;v.uptime_ms=45999;failed|=shot(out,"home-cache-fresh",v,240);
+ v.uptime_ms=46000;failed|=shot(out,"home-cache-stale",v,240);
+ v.uptime_ms=999;failed|=shot(out,"home-cache-backwards",v,240);
+ v.online=v.speech_ready=false;failed|=shot(out,"home-cache-stale-offline",v,240);
  v=base;v.clock_ready=true;v.now=1792139700;failed|=shot(out,"home-clock-synced",v,240);
  v.wifi_connected=v.online=false;v.now+=60;failed|=shot(out,"home-clock-offline",v,240);
  v.now=1798732740;failed|=shot(out,"home-clock-year-end",v,240);

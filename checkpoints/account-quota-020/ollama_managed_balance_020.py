@@ -192,7 +192,7 @@ async def read_managed_ollama_balance():
                              organization='', project='', webhook_secret='',
                              max_retries=0, http_client=http)
         key = None
-        body = await _bounded(client.get('/balance', cast_to=dict), 8)
+        body = await _bounded(client.get('/balance', cast_to=dict[str, object]), 8)
         return _normalize(body, time.time())
     except Exception:
         return _result('unavailable')

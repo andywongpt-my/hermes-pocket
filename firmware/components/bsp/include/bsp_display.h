@@ -24,6 +24,10 @@ esp_lcd_panel_io_handle_t bsp_display_io(void);
 // 背光亮度 0..100(%)。LEDC PWM,0=全灭。
 void bsp_display_backlight(uint8_t percent);
 
+/* Reversible standby only. Caller owns the LVGL mutex, with interrupts on.
+ * Sleep In/Out retain GPIO/SPI ownership and the installed driver delay. */
+esp_err_t bsp_display_set_sleep(bool asleep);
+
 // deep sleep 专用：关闭显示、让 ST7789 进入 Sleep In，停止背光 PWM，
 // 将 CS/SCLK/MOSI/DC/背光设为安全电平并在 deep sleep 中保持。调用时必须
 // 已阻止 LVGL 刷屏，调用后必须立即进入 deep sleep 或重启。
@@ -46,3 +50,10 @@ struct _lv_display_t *bsp_lvgl_init(void);
 // LVGL 尚未就绪或超时时 lock 返回 false；只有 lock 成功后才调用 unlock。
 bool bsp_lvgl_lock(int timeout_ms);
 void bsp_lvgl_unlock(void);
+
+/* Caller owns the LVGL mutex and must not be the LVGL task. No deinit/reinit
+ * is permitted while suspended. Failure retains ownership for a wake retry. */
+esp_err_t bsp_lvgl_set_sleep(bool asleep);
+/* Force the current view through the existing flush callback, then drain DMA.
+ * Caller owns the LVGL mutex and has resumed the panel and LVGL timers. */
+esp_err_t bsp_lvgl_repaint(void);

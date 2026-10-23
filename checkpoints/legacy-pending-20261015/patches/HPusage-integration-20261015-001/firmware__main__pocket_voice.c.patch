@@ -1,0 +1,35 @@
+--- a/firmware/main/pocket_voice.c
++++ b/firmware/main/pocket_voice.c
+@@ -2,6 +2,7 @@
+ #include "pocket_voice.h"
+ #include "pocket_setup.h"
+ #include "pocket_http.h"
++#include "pocket_usage_client.h"
+ #include "bsp_audio.h"
+ #include "esp_random.h"
+ #include "esp_timer.h"
+@@ -144,17 +145,21 @@
+  unsigned target,poll_target=0;
+  for(;;){
+   if(xQueueReceive(commands,&target,pdMS_TO_TICKS(5000))!=pdTRUE){
+-   pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false;int http_status=0;
++   pocket_setup_state current;pocket_setup_read(&current);bool online=false,ready=false,reachable=false;int http_status=0;
+    if(current.wifi_connected && time(NULL)>=1704067200 && pocket_setup_link(poll_target,link)){
+     char route[64];snprintf(route,sizeof(route),"/targets/%s/status",poll_target?"linux":"windows");pocket_http_result result;
+     esp_err_t error=pocket_http_json(link->origin,route,link->token,link->ca,NULL,response,8192,&result);http_status=result.status;
+     if(error==ESP_OK && http_status==200){
+-     cJSON *j=cJSON_Parse(response);online=!strcmp(string(j,"backend"),"available");
++     cJSON *j=cJSON_Parse(response);reachable=j!=NULL;online=!strcmp(string(j,"backend"),"available");
+      cJSON *v=cJSON_GetObjectItemCaseSensitive(j,"voice");ready=cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(v,"stt"));cJSON_Delete(j);
+     }
+    }
+-   portENTER_CRITICAL(&mux);bool changed=state.online[poll_target]!=online || state.speech_ready[poll_target]!=ready;state.online[poll_target]=online;state.speech_ready[poll_target]=ready;portEXIT_CRITICAL(&mux);
++   portENTER_CRITICAL(&mux);bool changed=state.online[poll_target]!=online || state.speech_ready[poll_target]!=ready;bool voice_pending=state.busy;state.online[poll_target]=online;state.speech_ready[poll_target]=ready;portEXIT_CRITICAL(&mux);
+    if(changed)ESP_LOGI("pocket_status","target=%u http=%d backend_available=%u stt=%u",poll_target,http_status,(unsigned)online,(unsigned)ready);
++   /* Reuse this worker, verified TLS client and response buffer only while idle.
++      Status JSON has been deleted before Usage allocates its bounded parse tree. */
++   if(reachable && !voice_pending)pocket_usage_poll(poll_target,link,response,8192);
++   else if(!reachable)pocket_usage_disconnected(poll_target);
+    memset(link,0,sizeof(*link));poll_target=1-poll_target;continue;
+   }bool started=false,pressed=false;char id[33],path[193],task[65]={0};
+   const char *name=target?"linux":"windows";uint32_t random[4];esp_fill_random(random,sizeof(random));

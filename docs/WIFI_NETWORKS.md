@@ -1,10 +1,5 @@
 # Saved Wi-Fi networks
 
-Unverified candidate: the original five-network/clock build failed reconnect and
-was rolled back to `2eabc460`. This branch contains its correction and tests,
-without corrected physical acceptance. Below is intended behavior; see
-[checkpoint status](CHECKPOINT-STATUS.md).
-
 Pocket remembers up to five password-protected networks. The existing network is imported from the legacy settings in memory on the first boot; that boot does not rewrite Wi-Fi or Hermes pairing. An existing valid profile list, including an intentionally empty list, takes precedence over legacy settings. Damaged records are reported without silently reviving a forgotten network.
 
 On Status, hold OK to open the five-minute phone setup window. Join the password-protected Pocket hotspot shown on its screen and open `http://192.168.4.1`. Choose Scan Wi-Fi or type a hidden network name, enter its password, then choose **Test and save Wi-Fi**. A fresh association followed by an IP address for that network is required before saving. No Hermes, speech or model request is made to validate Wi-Fi. Wi-Fi can work on a new network while the existing LAN-only Hermes address remains unreachable.

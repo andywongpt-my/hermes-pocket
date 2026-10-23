@@ -5,6 +5,9 @@
 #include "bsp_pins.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
+#include "esp_lcd_panel_io.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "bsp_lvgl";
@@ -14,9 +17,16 @@ static const char *TAG = "bsp_lvgl";
 static lv_display_t *s_disp;
 static bool s_port_initialized;
 static bool s_port_init_failed;
+static TaskHandle_t s_lvgl_task;
+static bool s_task_seen_render;
+static bool s_task_suspended;
 
 static void rounded_flush_event(lv_event_t *event)
 {
+    /* Port init acknowledges before its bootstrap finishes. Only a flush from
+       its own locked handler proves a safe steady-state suspension point. */
+    if (s_lvgl_task && xTaskGetCurrentTaskHandle() == s_lvgl_task)
+        s_task_seen_render = true;
     lv_display_t *disp = lv_event_get_target(event);
     const lv_area_t *area = lv_event_get_param(event);
     lv_draw_buf_t *draw_buf = lv_display_get_buf_active(disp);
@@ -74,6 +84,8 @@ lv_display_t *bsp_lvgl_init(void) {
             return NULL;
         }
         s_port_initialized = true;
+        /* Exact task name in pinned esp_lvgl_port 2.9.0, LVGL9 implementation. */
+        s_lvgl_task = xTaskGetHandle("taskLVGL");
     }
 
     const lvgl_port_display_cfg_t dc = {
@@ -129,4 +141,44 @@ bool bsp_lvgl_lock(int timeout_ms) {
 }
 void bsp_lvgl_unlock(void) {
     if (s_disp) lvgl_port_unlock();
+}
+
+esp_err_t bsp_lvgl_set_sleep(bool asleep) {
+    if (!s_disp) return ESP_ERR_INVALID_STATE;
+    /* A failed sleep admission must still allow the backlight-only fallback
+       to wake even when no task was suspended. */
+    if (!asleep && !s_task_suspended) return ESP_OK;
+    if (!s_lvgl_task || s_lvgl_task == xTaskGetCurrentTaskHandle() ||
+        (asleep && !s_task_seen_render)) return ESP_ERR_INVALID_STATE;
+    if (asleep == s_task_suspended) return ESP_OK;
+    esp_err_t error;
+    if (asleep) {
+        error = lvgl_port_stop();
+        if (error != ESP_OK) {
+            /* stop disables handler dispatch before it can report an error. */
+            (void)lvgl_port_resume();
+            return error;
+        }
+        vTaskSuspend(s_lvgl_task);
+        s_task_suspended = true;
+    } else {
+        error = lvgl_port_resume();
+        if (error != ESP_OK) {
+            /* Preserve a retryable stopped state and task ownership. */
+            (void)lvgl_port_stop();
+            return error;
+        }
+        vTaskResume(s_lvgl_task);
+        s_task_suspended = false;
+    }
+    return ESP_OK;
+}
+
+esp_err_t bsp_lvgl_repaint(void) {
+    if (!s_disp || s_task_suspended) return ESP_ERR_INVALID_STATE;
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(s_disp);
+    /* FLUSH_FINISH does not mean DMA completion. Public no-command tx_param
+       drains the final queued color transfer without replacing its callback. */
+    return esp_lcd_panel_io_tx_param(bsp_display_io(), -1, NULL, 0);
 }

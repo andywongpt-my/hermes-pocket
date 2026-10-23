@@ -289,6 +289,8 @@ void pocket_usage_poll(unsigned target,const pocket_link_config *link,char *resp
 void pocket_usage_disconnected(unsigned target) { assert(target<2);usage_disconnects++; }
 unsigned pocket_actions_poll_target(unsigned fallback){return fallback;}
 unsigned pocket_actions_poll_ms(void){return requested_idle_delay;}
+bool pocket_actions_poll_due(unsigned target){assert(target<2);return true;}
+bool pocket_actions_usage_due(unsigned target){assert(target<2);return true;}
 void pocket_actions_idle(unsigned target,const pocket_link_config *link,char *response,size_t capacity){
  assert(target<2 && link && response && capacity==8192 && !state.busy && !state.recording && !state.playing && !json_live);
  assert(transport_open && !queue_live && !audio_bytes);readonly_polls++;

@@ -95,7 +95,7 @@ static void start(pocket_wifi_engine *e,int64_t now,const pocket_wifi_snapshot *
  else if(result<0)failed(e,now,s,POCKET_WIFI_CONNECTION_FAILED);
 }
 bool pocket_wifi_join(pocket_wifi_engine *e,const pocket_wifi_profile *p,int64_t now,const pocket_wifi_snapshot *s){
- if(!e || !s || e->testing || !pocket_wifi_profile_valid(p))return false;
+ if(!e || !s || e->testing || e->phase==STOPPING || !pocket_wifi_profile_valid(p))return false;
  int index=pocket_wifi_book_find(&e->book,p->ssid);
  if(index<0 && e->book.count==POCKET_WIFI_CAPACITY){e->join_result=POCKET_WIFI_JOIN_FULL;return false;}
  e->attempt=*p;e->testing=true;e->join_result=POCKET_WIFI_JOIN_TESTING;e->selected=index;start(e,now,s);return true;

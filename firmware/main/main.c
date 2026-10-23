@@ -160,15 +160,34 @@ static void render(void) {
 static void redraw(void) {
  if(!screen_off && bsp_lvgl_lock(1000)){render();bsp_lvgl_unlock();}
 }
-static void set_awake(bool awake) {
- if(bsp_lvgl_lock(1000)){pocket_ui_set_awake(awake);bsp_lvgl_unlock();}
+static bool set_awake(bool awake) {
+ if(!bsp_lvgl_lock(1000)){
+  if(!awake)bsp_display_backlight(0);
+  ESP_LOGW("pocket_display_power","awake=%u error=%d",(unsigned)awake,ESP_ERR_TIMEOUT);
+  return false;
+ }
+ esp_err_t error;
+ if(!awake){
+  bsp_display_backlight(0);pocket_ui_set_awake(false);
+  error=bsp_lvgl_set_sleep(true);
+  if(error==ESP_OK)error=bsp_display_set_sleep(true);
+ }else{
+  error=bsp_display_set_sleep(false);
+  if(error==ESP_OK)error=bsp_lvgl_set_sleep(false);
+  if(error==ESP_OK){pocket_ui_set_awake(true);render();error=bsp_lvgl_repaint();}
+  if(error==ESP_OK)bsp_display_backlight(65);
+  else pocket_ui_set_awake(false);
+ }
+ bsp_lvgl_unlock();
+ ESP_LOGI("pocket_display_power","awake=%u error=%d",(unsigned)awake,error);
+ return error==ESP_OK;
 }
 static void enter_screen_off(void) {
  for(unsigned i=0;i<BSP_BTN_COUNT;i++)discard_gesture[i]=true;
  screen_off=true;set_awake(false);
  pocket_actions_screen_off(true);
- /* Reversible screen standby. Do not call the terminal deep-sleep BSP APIs. */
- bsp_display_backlight(0);
+ /* Failure retains dark screen standby; the next physical wake retries.
+    Terminal deep-sleep BSP helpers and CPU PM remain untouched. */
  ESP_LOGI("pocket_power","screen_off=1");
 }
 static void check_screen_idle(void){
@@ -185,9 +204,9 @@ static bool consume_wake_gesture(input value) {
  if(screen_off){
   /* Ignore stale CLICK/RELEASE events queued before standby. */
   if(value.event==BSP_BTN_PRESS){
+   if(!set_awake(true))return true;
    screen_off=false;wake_gesture=true;
    pocket_actions_screen_off(false);
-   set_awake(true);redraw();bsp_display_backlight(65);
    ESP_LOGI("pocket_power","screen_off=0");
   }
   return true;
