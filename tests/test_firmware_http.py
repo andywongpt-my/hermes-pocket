@@ -71,7 +71,8 @@ static bool timing_active,timing_marked;
 void pocket_http_timing_begin(bool enabled){timing_active=enabled;timing_marked=false;}
 void pocket_http_timing_headers_sent(void){if(timing_active)timing_marked=true;}
 void pocket_http_timing_end(pocket_http_io_timing *out){
- if(out)*out=timing_active?(pocket_http_io_timing){.write_us=1100,.body_write_us=900,.read_us=70000,.event_post_us=4000,.write_calls=2,.read_calls=3,.event_posts=8,.body_bytes=timing_marked?2756:0}:(pocket_http_io_timing){0};timing_active=false;
+ if(out){*out=timing_active?(pocket_http_io_timing){.write_us=1100,.body_write_us=900,.read_us=70000,.event_post_us=4000,.write_calls=2,.read_calls=3,.event_posts=8,.body_bytes=timing_marked?2756:0}:(pocket_http_io_timing){0};}
+ timing_active=false;
 }
 
 static bool disconnect_on_success;

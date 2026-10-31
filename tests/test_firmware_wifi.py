@@ -118,7 +118,8 @@ static unsigned writes,pair_writes;static bool set_fail,commit_fail,open_fail;
 esp_err_t nvs_open(const char *name,int mode,nvs_handle_t *h){assert(mode==0||mode==1);if(open_fail)return ESP_FAIL;if(!strcmp(name,"pocket"))*h=1;else{assert(!strcmp(name,"pocket_wifi"));*h=2;}return ESP_OK;}
 esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *size){
  const void *data;size_t n;if(h==1){assert(!strcmp(key,"config"));data=config;n=config_size;}else{assert(h==2&&(!strcmp(key,"a")||!strcmp(key,"b")));unsigned i=*key=='a'?0:1;data=slots[i];n=sizes[i];}
- if(!n)return ESP_ERR_NVS_NOT_FOUND;if(out){if(*size<n)return ESP_FAIL;memcpy(out,data,n);}*size=n;return ESP_OK;
+ if(!n){return ESP_ERR_NVS_NOT_FOUND;}
+ if(out){if(*size<n)return ESP_FAIL;memcpy(out,data,n);}*size=n;return ESP_OK;
 }
 esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *data,size_t size){
  writes++;if(set_fail)return ESP_FAIL;if(h==1){assert(!strcmp(key,"config")&&size<sizeof config);pair_writes++;memcpy(config,data,size);config_size=size;}

@@ -133,6 +133,9 @@ static bool local_utc(bool present,int64_t seconds,char *out,size_t size) {
  const unsigned date=doy-(153*mp+2)/5+1,month=mp<10?mp+3:mp-9;
  const unsigned year=(unsigned)(yoe+era*400)+(month<=2);
  const unsigned within=(unsigned)(seconds%86400);
+ /* Keep the derived calendar bounds explicit for optimized host compilers,
+  * which cannot infer the civil-date arithmetic's range from seconds alone. */
+ if(year>9999 || month>12 || date>31 || within>86399){snprintf(out,size,"Time unknown");return false;}
  snprintf(out,size,"%04u-%02u-%02u %02u:%02u:%02u UTC",year,month,date,within/3600,(within/60)%60,within%60);
  return true;
 }

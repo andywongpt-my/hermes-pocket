@@ -5,6 +5,7 @@
 #include "pocket_model.h"
 #include "pocket_usage.h"
 #include "pocket_diagnostics.h"
+#include "pocket_offline_diagnostic.h"
 
 typedef struct {
  pocket_page page;
@@ -13,6 +14,7 @@ typedef struct {
  int64_t now;
  int64_t uptime_ms;
  const pocket_diagnostics *diagnostics;
+ const pocket_offline_diagnostic_snapshot *offline_diagnostic; /* NULL in default build. */
  bool target_save_failed,clock_ready;
  pocket_tool tool;
  unsigned volume,alert_threshold,task_count,task_selected;
@@ -26,6 +28,10 @@ typedef struct {
  const char *task_phase,*task_status,*task_result,*alert_note;
  int battery_percent; /* Negative when the gauge has no trustworthy reading. */
  bool setup_active, wifi_connected, online, speech_ready;
+ /* Qualification labels must be fixed controller text, never raw data/secrets. */
+ bool qualification_mode,qualification_locked;
+ const char *qualification_title,*qualification_detail,*qualification_hint;
+ bool live_mode,live_available,live_cleanup_pending; /* False preserves legacy UI. */
  bool voice_here, recording, playing, busy; /* voice_here: voice state belongs to target. */
  const char *ssid, *password, *message, *text, *reply, *setup_message;
 } pocket_ui_view;

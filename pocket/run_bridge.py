@@ -9,6 +9,7 @@ import json
 import os
 import signal
 from pathlib import Path
+from collections.abc import Mapping
 from .schema import identifier
 from .transport import JSONTransport, unique
 from .hermes import HermesAdapter
@@ -47,7 +48,12 @@ def speech_adapter(voice,target):
         raise ValueError('invalid speech configuration')
     return LinuxSpeechAdapter(DashboardTransport(voice['origin'],secret(voice['token_env']),host_header=voice.get('host_header')),stt_enabled=voice['stt_enabled'])
 
-def build(config):
+def build(config, *, live=None):
+    """Build with optional, borrowed Live endpoints supplied by trusted code.
+
+    No Live client or echo processor is constructed here. The caller retains
+    ownership of endpoint clients through startup failure and server shutdown.
+    """
     required={'targets','devices','port'}
     if not isinstance(config,dict) or not required<=set(config) or set(config)-required-{'host','tls'}:
         raise ValueError('invalid bridge configuration')
@@ -62,6 +68,17 @@ def build(config):
     definitions=config['targets'];devices=config['devices']
     if not isinstance(definitions,dict) or not 1<=len(definitions)<=2:raise ValueError('one or two targets required')
     if not isinstance(devices,dict) or not 1<=len(devices)<=8:raise ValueError('one to eight owner-paired devices required')
+    # Validate/snapshot opt-in before credentials, probes, stores or listeners.
+    # Keep the optional WebSocket dependency out of the default-off path.
+    if live is not None and not isinstance(live,Mapping):
+        raise ValueError('explicit Live endpoint mapping required')
+    live={} if live is None else dict(live)
+    if any(name not in ('windows','linux') or name not in definitions for name in live):
+        raise ValueError('unknown Live target')
+    if live:
+        from .live_websocket import LiveEndpoint
+        if any(not isinstance(endpoint,LiveEndpoint) for endpoint in live.values()):
+            raise ValueError('explicit Live endpoints required')
     tokens={};services={};resources=[];speech={};runtime_usage={}
     try:
         for device,variable in devices.items():
@@ -101,7 +118,7 @@ def build(config):
             if voice is not None:
                 speech[target]=speech_adapter(voice,target)
                 resources.append(speech[target])
-        return make_server(services,tokens,host=host,port=port,speech=speech,tls=tls,runtime_usage=runtime_usage),resources
+        return make_server(services,tokens,host=host,port=port,speech=speech,tls=tls,runtime_usage=runtime_usage,live=live),resources
     except BaseException:
         for resource in reversed(resources):resource.close()
         raise

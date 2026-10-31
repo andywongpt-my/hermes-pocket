@@ -250,7 +250,8 @@ esp_err_t nvs_get_blob(nvs_handle_t n,const char *key,void *out,size_t *size){
  if(strcmp(key,n==1?"config":"linux_public"))return ESP_ERR_NVS_NOT_FOUND;
  if(!count)return ESP_ERR_NVS_NOT_FOUND;
  if(!out){*size=count;return ESP_OK;}
- if(*size<count)return ESP_FAIL;memcpy(out,blob,count);*size=count;return ESP_OK;
+ if(*size<count)return ESP_FAIL;
+ memcpy(out,blob,count);*size=count;return ESP_OK;
 }
 esp_err_t nvs_set_blob(nvs_handle_t n,const char *key,const void *data,size_t size){
  if(n==1){legacy_writes++;return ESP_FAIL;}

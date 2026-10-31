@@ -4,6 +4,18 @@ FoloToy AI Passport companion for Windows and Linux Hermes Agent. MIT applicatio
 code, copyright 2026 Andy Wong. Independent community project, not an official
 FoloToy or NousResearch product.
 
+## GPT-Live source checkpoint, 31 October 2026
+
+[Current handoff and verification limits](docs/GPT-LIVE-HANDOFF-20261031.md).
+Implemented host/firmware Live components and silent numeric observations are
+preserved here, but Live activation remains blocked by production readiness.
+Cloud suite: 833/841 passing with eight retained process-containment exceptions;
+no physical duplex or real-provider success is claimed. No firmware binaries,
+credentials or deployment configuration are published in this checkpoint.
+
+The following October 23 description is historical context, not current Live
+build status.
+
 ## Source checkpoint, 23 October 2026
 
 This branch preserves pending project work without deployment. Root firmware

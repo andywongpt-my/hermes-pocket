@@ -7,7 +7,8 @@ CONFIG_IDF_TARGET="esp32c3"
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 # 固定 8MB 镜像头，关闭 detect，便于 idf.py merge-bin。
 CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
-# 默认模板只保留 NVS、PHY data 和占用剩余空间的 factory app；用户可按需修改。
+# Build-only CSV: factory app is bounded to 3 MiB; other rows are unverified.
+# Do not install the generated partition-table image.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
@@ -50,3 +51,9 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 CONFIG_LV_FONT_SOURCE_HAN_SANS_SC_16_CJK=y
+
+# Live UI/caller remains opt-in and cannot attest physical readiness.
+CONFIG_POCKET_LIVE_APP_CALLER=n
+
+# Local qualification changes USB ownership only in its explicit opt-in build.
+CONFIG_POCKET_QUALIFICATION=n

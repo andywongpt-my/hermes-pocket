@@ -263,12 +263,25 @@ class ChunkTimingTests(unittest.TestCase):
         self.assert_isolated(self.row(), WRITE_BODY_US)
 
     def test_header_wait_is_separate_from_dispatch(self):
+        # Begin the injected delay only after the handler's header timer is live.
+        # sendall alone does not establish that the server has been scheduled.
+        self.client.close()
+        entered = threading.Event()
+        parse_headers = http.client.parse_headers
+
+        def observed_headers(stream, *args, **kwargs):
+            if isinstance(stream, ReadObserver):
+                entered.set()
+            return parse_headers(stream, *args, **kwargs)
+
         connection = socket.create_connection(('127.0.0.1', self.server.server_port), timeout=2)
         raw = json.dumps({'sequence': 0, 'data': 'AAA='}).encode()
         try:
-            connection.sendall(('POST ' + self.path + '/chunk HTTP/1.1\r\nHost: localhost\r\n').encode())
-            time.sleep(.09)
-            connection.sendall(('Authorization: Bearer fixture-private-token\r\nContent-Length: ' + str(len(raw)) + '\r\n\r\n').encode() + raw)
+            with patch('http.client.parse_headers', side_effect=observed_headers):
+                connection.sendall(('POST ' + self.path + '/chunk HTTP/1.1\r\nHost: localhost\r\n').encode())
+                self.assertTrue(entered.wait(2), 'handler did not enter header parsing')
+                time.sleep(.09)
+                connection.sendall(('Authorization: Bearer fixture-private-token\r\nContent-Length: ' + str(len(raw)) + '\r\n\r\n').encode() + raw)
             response = http.client.HTTPResponse(connection)
             response.begin()
             self.assertEqual(response.status, 200)

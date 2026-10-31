@@ -1,5 +1,10 @@
 # Third-party notices
 
+The optional native-24-kHz host AEC wrapper uses the separately installed
+SpeexDSP 1.2.1 public C ABI (BSD-3-Clause). The library is not bundled or
+automatically loaded; its notice is retained in `licenses/SpeexDSP-BSD.txt`.
+See `GPT-LIVE-AEC.md` for the pinned source archive and synchronization gate.
+
 The board support package under firmware/components/bsp derives from
 FoloToy/ai-passport commit a9320ab6eaa21b90759a4a22d1039092385f24dd,
 with local Hermes Pocket modifications including display rounding, battery,

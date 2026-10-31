@@ -1,0 +1,11 @@
+menu "Pocket experimental audio"
+config BSP_AUDIO_CALLBACK_RENDER
+    bool "Experimental callback-owned DMA render accounting"
+    default n
+    select I2S_ISR_IRAM_SAFE
+    help
+        Source-tested only. Enables bounded digital-render queue and descriptor
+        accounting APIs; does not activate streaming, prove acoustics, or align
+        microphone capture timing. Requires explicit application integration and
+        hardware acceptance. Legacy default remains off.
+endmenu

@@ -230,7 +230,8 @@ bool pocket_speech_v2_play(const pocket_link_config *link,unsigned target,const 
  assert(io->start(io->context)&&state.playing&&!codec_sleeping);memset(pcm,0,4096);
  bool ok=io->write(io->context,pcm,4096);if(mode==39)pocket_voice_cancel();else pocket_voice_set_volume(15);
  if(ok&&!io->cancelled(io->context))ok=io->write(io->context,pcm,2);else ok=false;
- if(ok)ok=io->drain(io->context);io->stop(io->context);
+ if(ok){ok=io->drain(io->context);}
+ io->stop(io->context);
  assert(!state.playing&&codec_sleeping);if(io->message)io->message(io->context,ok?"Reply ready":"Playback stopped");return ok;
 }
 void pocket_reader_available(unsigned target,bool value){assert(target<2);(void)value;}

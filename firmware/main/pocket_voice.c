@@ -1,5 +1,16 @@
 /* MIT. Bounded half-duplex PCM capture/transport/playback, never on UI thread. */
 #include "pocket_voice.h"
+#if CONFIG_POCKET_LIVE_APP_CALLER
+#include "pocket_live_app.h"
+#include "pocket_live_admission.h"
+#endif
+#if CONFIG_POCKET_QUALIFICATION
+#include "pocket_qualification.h"
+#include "pocket_qualification_control.h"
+#include "pocket_qualification_usb.h"
+#include "pocket_live_v2_audio.h"
+#include "pocket_qualification_transport.h"
+#endif
 #include "pocket_setup.h"
 #include "pocket_http.h"
 #include "pocket_usage_client.h"
@@ -67,10 +78,183 @@ static atomic_bool audio_unavailable;
 static bool radio_restore_pending;
 static wifi_ps_type_t radio_saved_ps;
 static unsigned radio_saved_target;
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+static pocket_offline_diagnostic_control diagnostic_control;
+static pocket_offline_diagnostic_snapshot diagnostic_snapshot;
+static bool diagnostic_owned,diagnostic_quarantined;
+static uint64_t diagnostic_now(void *unused){(void)unused;return (uint64_t)(esp_timer_get_time()/1000);}
+bool pocket_voice_diagnostic_active(void){portENTER_CRITICAL(&mux);bool active=diagnostic_owned;portEXIT_CRITICAL(&mux);return active;}
+void pocket_voice_diagnostic_read(pocket_offline_diagnostic_snapshot*out){
+ portENTER_CRITICAL(&mux);
+ pocket_offline_diagnostic_expire(&diagnostic_control,diagnostic_now(NULL));
+ if(diagnostic_control.phase==PDIAG_ARMED||(!diagnostic_owned&&diagnostic_control.phase==PDIAG_ERROR)){
+  diagnostic_snapshot.phase=diagnostic_control.phase;diagnostic_snapshot.code=diagnostic_control.code;
+ }
+ *out=diagnostic_snapshot;portEXIT_CRITICAL(&mux);
+}
+bool pocket_voice_diagnostic_arm(uint64_t now_ms,uint32_t nonce){
+ uint64_t now=diagnostic_now(NULL);if(now_ms>now||now-now_ms>1000)return false;
+ portENTER_CRITICAL(&mux);
+ bool ok=!state.busy&&!audio_unavailable&&commands&&pocket_offline_diagnostic_arm(&diagnostic_control,now,nonce);
+ if(ok)diagnostic_snapshot=(pocket_offline_diagnostic_snapshot){.phase=PDIAG_ARMED};
+ portEXIT_CRITICAL(&mux);return ok;
+}
+void pocket_voice_diagnostic_button(bool ok,bool press,uint64_t ms,uint32_t nonce){
+ portENTER_CRITICAL(&mux);pocket_offline_diagnostic_button(&diagnostic_control,ok,press,ms,nonce);portEXIT_CRITICAL(&mux);
+}
+void pocket_voice_diagnostic_input_lost(void){portENTER_CRITICAL(&mux);pocket_offline_diagnostic_input_lost(&diagnostic_control);portEXIT_CRITICAL(&mux);}
+bool pocket_voice_diagnostic_begin(uint64_t ms,uint32_t nonce){
+ portENTER_CRITICAL(&mux);
+ bool admitted=!state.busy&&!audio_unavailable&&commands&&pocket_offline_diagnostic_admit(&diagnostic_control,ms,nonce,diagnostic_now(NULL));
+ if(!admitted){portEXIT_CRITICAL(&mux);return false;}
+ if(!pocket_setup_voice_acquire()){
+  diagnostic_control.phase=PDIAG_ERROR;diagnostic_control.code=PDIAG_ADMISSION_FAILED;
+  diagnostic_snapshot.phase=PDIAG_ERROR;diagnostic_snapshot.code=PDIAG_ADMISSION_FAILED;
+  portEXIT_CRITICAL(&mux);return false;
+ }
+ diagnostic_owned=true;state.busy=true;state.recording=false;state.playing=false;held=false;cancelled=false;
+ diagnostic_snapshot.phase=PDIAG_QUEUED;
+ portEXIT_CRITICAL(&mux);
+ pocket_reader_close();
+ unsigned command=2;
+ if(xQueueSend(commands,&command,0)!=pdTRUE){
+  portENTER_CRITICAL(&mux);diagnostic_owned=false;state.busy=false;diagnostic_control.phase=PDIAG_ERROR;diagnostic_control.code=PDIAG_ADMISSION_FAILED;diagnostic_snapshot.phase=PDIAG_ERROR;diagnostic_snapshot.code=PDIAG_ADMISSION_FAILED;portEXIT_CRITICAL(&mux);
+  pocket_setup_voice_release();return false;
+ }
+ return true;
+}
+static bool diagnostic_cancelled(void*unused){
+ (void)unused;portENTER_CRITICAL(&mux);bool stop=diagnostic_control.stop||cancelled;portEXIT_CRITICAL(&mux);return stop;
+}
+static bool diagnostic_begin(void*unused,uint32_t epoch,bool*cleanup){(void)unused;return bsp_audio_diagnostic_begin(epoch,cleanup)==ESP_OK;}
+static int diagnostic_capture(void*unused,pocket_offline_diagnostic_frame*out){
+ (void)unused;bsp_audio_capture_frame_t f;esp_err_t error=bsp_audio_reference_poll(&f);
+ if(error!=ESP_OK){volatile uint8_t*p=(volatile uint8_t*)&f;for(size_t n=0;n<sizeof f;n++)p[n]=0;return error==ESP_ERR_NOT_FOUND?0:-1;}
+ out->epoch=f.epoch;out->sequence=f.sequence;out->sample_offset=f.sample_offset;memcpy(out->pcm,f.pcm,sizeof out->pcm);
+ volatile uint8_t*p=(volatile uint8_t*)&f;for(size_t n=0;n<sizeof f;n++)p[n]=0;
+ return 1;
+}
+static bool diagnostic_end(void*unused){(void)unused;return bsp_audio_diagnostic_end()==ESP_OK;}
+static void diagnostic_idle(void*unused){(void)unused;vTaskDelay(pdMS_TO_TICKS(1));}
+static void diagnostic_publish(void*unused,const pocket_offline_diagnostic_snapshot*s){
+ (void)unused;portENTER_CRITICAL(&mux);diagnostic_snapshot=*s;diagnostic_control.phase=s->phase;diagnostic_control.code=s->code;portEXIT_CRITICAL(&mux);
+}
+static void diagnostic_run(void){
+ portENTER_CRITICAL(&mux);bool dispatch=pocket_offline_diagnostic_dispatch(&diagnostic_control,diagnostic_now(NULL));
+ if(!dispatch){diagnostic_snapshot.phase=diagnostic_control.phase;diagnostic_snapshot.code=diagnostic_control.code;diagnostic_snapshot.restore_ok=false;diagnostic_snapshot.cleanup_attempted=false;}
+ portEXIT_CRITICAL(&mux);
+ const pocket_offline_diagnostic_ops ops={diagnostic_begin,diagnostic_capture,diagnostic_end,diagnostic_cancelled,diagnostic_now,diagnostic_idle,diagnostic_publish};
+ bool restored=!dispatch||pocket_offline_diagnostic_run(&ops,NULL);
+ if(restored)pocket_setup_voice_release();
+ portENTER_CRITICAL(&mux);
+ diagnostic_quarantined=!restored;diagnostic_owned=!restored;state.busy=!restored;state.recording=false;state.playing=false;
+ if(!restored)audio_unavailable=true;
+ portEXIT_CRITICAL(&mux);
+}
+#endif
 static void message(const char *value){portENTER_CRITICAL(&mux);snprintf(state.message,sizeof(state.message),"%s",value);portEXIT_CRITICAL(&mux);}
-void pocket_voice_read(pocket_voice_state *out){portENTER_CRITICAL(&mux);*out=state;portEXIT_CRITICAL(&mux);}
+#if CONFIG_POCKET_QUALIFICATION
+#include "pocket_qualification_voice.inc"
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+static atomic_bool live_stop;
+static bool live_owned,live_setup_owned,live_cleanup;
+static uint64_t live_last_event,live_next_reap;
+static uint32_t live_generation;
+static pocket_live_session_epoch live_epochs;
+static pocket_live_app *live_app;
+static struct {unsigned target,volume;uint64_t event_ms,deadline_ms;} live_request;
+static uint64_t live_now(void*unused){(void)unused;return (uint64_t)(esp_timer_get_time()/1000);}
+static void live_wipe(void*p,size_t n){volatile unsigned char*q=p;while(n--)*q++=0;}
+bool pocket_voice_live_active(void){portENTER_CRITICAL(&mux);bool value=live_owned;portEXIT_CRITICAL(&mux);return value;}
+bool pocket_voice_live_cleanup_pending(void){portENTER_CRITICAL(&mux);bool value=live_cleanup;portEXIT_CRITICAL(&mux);return value;}
+uint32_t pocket_voice_live_button(bool press){
+ portENTER_CRITICAL(&mux);
+ if(press){if(live_generation<UINT32_MAX)live_generation++;if(live_owned)atomic_store_explicit(&live_stop,true,memory_order_release);}
+ uint32_t generation=live_generation;portEXIT_CRITICAL(&mux);return generation;
+}
+void pocket_voice_live_input_lost(void){(void)pocket_voice_live_button(true);}
+static bool live_stopped(void*unused){(void)unused;return atomic_load_explicit(&live_stop,memory_order_acquire);}
+static bool live_owner_held(void*unused){(void)unused;portENTER_CRITICAL(&mux);bool value=live_setup_owned&&live_owned;portEXIT_CRITICAL(&mux);return value;}
+static bool live_owner_release(void*unused){
+ (void)unused;portENTER_CRITICAL(&mux);bool owned=live_setup_owned;live_setup_owned=false;portEXIT_CRITICAL(&mux);
+ if(owned)pocket_setup_voice_release();
+ return owned;
+}
+static void live_idle_state(void){
+ portENTER_CRITICAL(&mux);live_owned=false;live_cleanup=false;state.busy=false;state.recording=false;state.playing=false;audio_unavailable=false;portEXIT_CRITICAL(&mux);
+}
+bool pocket_voice_live_begin(unsigned target,uint64_t event_ms,uint32_t generation){
+ /* Physical refusal precedes config lookup, lease acquisition and allocation. */
+ if(!pocket_live_v2_device_admission_allowed()){message("Live requires device validation");return false;}
+ uint64_t now=live_now(NULL);
+ if(target>1||!event_ms||event_ms>now||now-event_ms>1000||event_ms>UINT64_MAX-10000||!commands||audio_unavailable)return false;
+ portENTER_CRITICAL(&mux);
+ bool blocked=state.busy||live_owned||event_ms<=live_last_event||!generation||generation==UINT32_MAX||generation!=live_generation;
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ blocked=blocked||diagnostic_control.phase==PDIAG_ARMED;
+#endif
+ if(blocked){portEXIT_CRITICAL(&mux);return false;}
+ if(!pocket_setup_voice_acquire()){portEXIT_CRITICAL(&mux);message("Finish setup before Live");return false;}
+ live_last_event=event_ms;live_request.target=target;live_request.volume=state.volume;live_request.event_ms=event_ms;live_request.deadline_ms=event_ms+10000;
+ live_owned=true;live_setup_owned=true;live_cleanup=false;state.busy=true;state.target=target;state.recording=false;state.playing=false;held=false;cancelled=false;
+ atomic_store_explicit(&live_stop,false,memory_order_release);portEXIT_CRITICAL(&mux);
+ pocket_reader_close();unsigned command=3;
+ if(xQueueSend(commands,&command,0)!=pdTRUE){(void)live_owner_release(NULL);live_idle_state();message("Live queue unavailable");return false;}
+ message("Live queued");return true;
+}
+static void live_finish(void){
+ pocket_live_app_snapshot s;pocket_live_app_read(live_app,&s);
+ if(s.phase!=PLS_RELEASED){
+  portENTER_CRITICAL(&mux);live_cleanup=true;audio_unavailable=true;portEXIT_CRITICAL(&mux);
+  if(s.network_cleanup_pending)message(!s.backend_status_known?"Live cleanup pending; backend state unknown":s.worker.backend_pending?"Live cleanup pending; backend work pending":s.worker.finalized?"Live cleanup pending; backend finalized":"Live cleanup pending; finalization unconfirmed");
+  else message(!s.backend_status_known?"Live cleanup locked; backend state unknown; restart required":s.worker.backend_pending?"Live cleanup locked; backend work pending; restart required":"Live cleanup locked; restart required");
+  return;
+ }
+ const char*note=!s.worker_ran?(s.reason==PLS_EXPIRED?"Live request expired":s.reason==PLS_STOPPED?"Live stopped before connection":"Live not started"):
+  !s.backend_status_known?"Live ended; backend state unknown":s.worker.backend_pending?"Live ended; backend work pending":s.worker.finalized?"Live ended; backend finalized":"Live ended; finalization unconfirmed";
+ if(!pocket_live_app_destroy(live_app)){portENTER_CRITICAL(&mux);live_cleanup=true;audio_unavailable=true;portEXIT_CRITICAL(&mux);message("Live cleanup locked; restart required");return;}
+ live_app=NULL;live_idle_state();message(note);
+}
+static void live_run(pocket_link_config*link){
+ if(!live_owner_held(NULL)){live_wipe(link,sizeof *link);message("Live ownership unavailable");return;}
+ uint64_t now=live_now(NULL);const char*failure=NULL;
+ if(!pocket_live_v2_device_admission_allowed())failure="Live requires device validation";
+ else if(live_stopped(NULL))failure="Live stopped before connection";
+ else if(now<live_request.event_ms||now>=live_request.deadline_ms)failure="Live request expired";
+ else if(live_epochs.exhausted||live_epochs.last==UINT32_MAX)failure="Live session counter exhausted";
+ if(!failure&&!pocket_setup_link(live_request.target,link))failure="Configure bridge for Live";
+ if(!failure){
+  pocket_live_app_request request={.origin=link->origin,.token=link->token,.ca_pem=link->ca,.chat_id="pocket",.target=live_request.target,.volume=live_request.volume,.epoch=live_epochs.last+1,.deadline_ms=live_request.deadline_ms};
+  pocket_live_app_owner owner={NULL,live_owner_held,live_owner_release,live_stopped,live_now,&live_epochs};
+  live_app=pocket_live_app_create(&request,&owner);if(!live_app)failure="Live preparation unavailable";
+ }
+ live_wipe(link,sizeof *link);
+ if(failure){(void)live_owner_release(NULL);live_idle_state();message(failure);return;}
+ pocket_live_app_snapshot prepared;pocket_live_app_read(live_app,&prepared);
+ if(prepared.phase==PLS_RESERVED){message("Live session active");(void)pocket_live_app_execute(live_app);}
+ now=live_now(NULL);live_next_reap=now>UINT64_MAX-250?UINT64_MAX:now+250;live_finish();
+}
+static void live_progress(void){
+ if(!live_app)return;
+ pocket_live_app_snapshot s;pocket_live_app_read(live_app,&s);
+ uint64_t now=live_now(NULL);
+ if(!s.network_cleanup_pending||now<live_next_reap)return;
+ live_next_reap=now>UINT64_MAX-250?UINT64_MAX:now+250;
+ (void)pocket_live_app_reap(live_app);live_finish();
+}
+#endif /* CONFIG_POCKET_LIVE_APP_CALLER */
+void pocket_voice_read(pocket_voice_state *out){portENTER_CRITICAL(&mux);*out=state;
+#if CONFIG_POCKET_LIVE_APP_CALLER
+ if(live_owned&&!live_cleanup&&atomic_load_explicit(&live_stop,memory_order_acquire))snprintf(out->message,sizeof out->message,"Live stopping");
+#endif
+ portEXIT_CRITICAL(&mux);}
 void pocket_voice_release(void){portENTER_CRITICAL(&mux);held=false;portEXIT_CRITICAL(&mux);}
-void pocket_voice_cancel(void){portENTER_CRITICAL(&mux);held=false;cancelled=true;portEXIT_CRITICAL(&mux);}
+void pocket_voice_cancel(void){
+#if CONFIG_POCKET_LIVE_APP_CALLER
+ pocket_voice_live_button(true);
+#endif
+ portENTER_CRITICAL(&mux);held=false;cancelled=true;portEXIT_CRITICAL(&mux);}
 void pocket_voice_set_volume(unsigned volume){portENTER_CRITICAL(&mux);state.volume=volume>100?100:volume;portEXIT_CRITICAL(&mux);}
 static void apply_volume(void){portENTER_CRITICAL(&mux);unsigned volume=state.volume;portEXIT_CRITICAL(&mux);bsp_audio_set_volume((uint8_t)volume);}
 static bool flags(bool *pressed){portENTER_CRITICAL(&mux);*pressed=held;bool stop=cancelled;portEXIT_CRITICAL(&mux);return stop;}
@@ -118,6 +302,12 @@ static void audio_sleep(unsigned target){
  ESP_LOGI("pocket_audio_power","target=%u stage=0 error=%d",target,error);
 }
 void pocket_voice_begin_model(unsigned target,unsigned choice){
+#if CONFIG_POCKET_LIVE_APP_CALLER
+ (void)choice;(void)pocket_voice_live_begin(target,live_now(NULL),0);return;
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ portENTER_CRITICAL(&mux);bool diag_armed=diagnostic_control.phase==PDIAG_ARMED;portEXIT_CRITICAL(&mux);if(diag_armed)return;
+#endif
  if(target>1 || choice>=POCKET_MODEL_CHOICE_COUNT || !commands || audio_unavailable)return;
  portENTER_CRITICAL(&mux);
  if(state.busy){cancelled=true;held=false;portEXIT_CRITICAL(&mux);return;}
@@ -318,8 +508,26 @@ static void network(void *unused){
  pocket_link_config *link=malloc(sizeof(*link));char *response=malloc(8192);
  capture_frame *frame=NULL;char *body=NULL;audio_frame *playback=NULL;
  if(!link || !response){audio_unavailable=true;message("Not enough memory for connection");free(link);free(response);pocket_setup_voice_release();vTaskDelete(NULL);return;}
- unsigned target,poll_target=0,last_poll_ms=0;
+ unsigned target=0,poll_target=0,last_poll_ms=0;bool capture_cleanup_pending=false;
  for(;;){
+#if CONFIG_POCKET_QUALIFICATION
+  qualification_progress();
+  if(qualification_tls_storage){vTaskDelay(pdMS_TO_TICKS(100));continue;}
+  if(pocket_voice_qualification_locked()){vTaskDelay(pdMS_TO_TICKS(100));continue;}
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+  if(pocket_voice_live_cleanup_pending()){live_progress();vTaskDelay(pdMS_TO_TICKS(250));continue;}
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+  if(diagnostic_quarantined){vTaskDelay(pdMS_TO_TICKS(100));continue;}
+#endif
+  /* A codec read may complete after the bounded terminal wait. Retain its
+     queue/lease until then, and recover here without admitting another turn. */
+  if(capture_cleanup_pending && release_capture(&frame,&body)){
+   audio_sleep(target);message("Recording discarded; hold OK to retry");
+   pocket_setup_voice_release();capture_cleanup_pending=false;
+   portENTER_CRITICAL(&mux);state.busy=false;state.playing=false;portEXIT_CRITICAL(&mux);
+  }
   portENTER_CRITICAL(&mux);bool active_voice=state.busy;portEXIT_CRITICAL(&mux);
   const unsigned poll_ms=active_voice?POCKET_IDLE_POLL_MS:pocket_actions_poll_ms();
   if(poll_ms!=last_poll_ms){ESP_LOGI("pocket_poll","delay_ms=%u",poll_ms);last_poll_ms=poll_ms;}
@@ -373,7 +581,17 @@ static void network(void *unused){
    pocket_http_close();
    pocket_setup_poll_release();
    memset(link,0,sizeof(*link));poll_target=1-poll_target;continue;
-  }bool started=false,pressed=false,restore_radio=false;wifi_ps_type_t saved_ps=WIFI_PS_NONE;unsigned sequence=0;char id[33],path[193],task[65]={0},begin_body[96];
+  }
+#if CONFIG_POCKET_QUALIFICATION
+  if(target==4){qualification_wipe(link,sizeof *link);qualification_run();continue;}
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+  if(target==2){diagnostic_run();continue;}
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+  if(target==3){live_run(link);continue;}
+#endif
+  bool started=false,pressed=false,restore_radio=false;wifi_ps_type_t saved_ps=WIFI_PS_NONE;unsigned sequence=0;char id[33],path[193],task[65]={0},begin_body[96];
   portENTER_CRITICAL(&mux);unsigned choice=pending_model_choice;memcpy(begin_body,pending_begin_body,sizeof(begin_body));portEXIT_CRITICAL(&mux);
   portENTER_CRITICAL(&mux);capture_diag=(capture_diagnostics){0};capture_failed=false;capture_done=false;portEXIT_CRITICAL(&mux);max_upload_ms=0;upload_diag=(upload_diagnostics){0};
   const char *name=target?"linux":"windows";uint32_t random[4];esp_fill_random(random,sizeof(random));
@@ -385,9 +603,13 @@ static void network(void *unused){
   if(!pocket_setup_link(target,link)){message("Configure bridge and device token");goto finished;}
   snprintf(path,sizeof(path),"/targets/%s/status",name);
   cJSON *status=request(link,path,NULL,response,8192,VOICE_STATUS);if(!status)goto finished;
-  cJSON *voice=cJSON_GetObjectItemCaseSensitive(status,"voice");bool stt=cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(voice,"stt"));
+  const char *backend=string(status,"backend");
+  const bool reachable=!strcmp(backend,"available") || !strcmp(backend,"unavailable"),online=!strcmp(backend,"available");
+  cJSON *voice=cJSON_GetObjectItemCaseSensitive(status,"voice");bool stt=reachable && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(voice,"stt"));
   const bool segmented=pocket_delivery_speech_segments(status);
-  portENTER_CRITICAL(&mux);state.online[target]=!strcmp(string(status,"backend"),"available");state.speech_ready[target]=stt;portEXIT_CRITICAL(&mux);cJSON_Delete(status);
+  portENTER_CRITICAL(&mux);state.online[target]=online;state.speech_ready[target]=stt;portEXIT_CRITICAL(&mux);cJSON_Delete(status);
+  if(!reachable){message("Invalid bridge status; try again");goto finished;}
+  if(!online){message("Hermes unavailable; try again");goto finished;}
   if(!stt){message("Speech recognition is not enabled");goto finished;}
   if(flags(&pressed) || !pressed){message("Hold OK to speak");goto finished;}
   if(choice>=POCKET_MODEL_CHOICE_COUNT || !begin_body[0]){message("Selected model unavailable; open Models");goto finished;}
@@ -428,7 +650,7 @@ static void network(void *unused){
    if(done && uxQueueMessagesWaiting(audio_queue)==0)break;
   }
   pocket_voice_release();
-  if(failed || !sequence)goto abort_capture;
+  if(failed || !sequence){if(!failed)message("No audio recorded; hold OK to speak");goto abort_capture;}
   /* The recorder is done and every queued frame was uploaded. Free its queue
      and clear borrowed views before finish/STT/task/speech reuse the full scratch. */
   if(!release_capture(&frame,&body)){message("Audio stalled; restart device");goto abort_capture;}
@@ -465,7 +687,8 @@ static void network(void *unused){
   if(!fault)audio_sleep(target); /* Includes cancellation, failures and playback. */
   if(playback){memset(playback,0,sizeof(*playback));free(playback);playback=NULL;}
   memset(link,0,sizeof(*link));
-  if(fault)message("Audio stalled; restart device");
+  capture_cleanup_pending=fault;
+  if(fault)message("Audio stalled; waiting for recovery");
   else {portENTER_CRITICAL(&mux);bool stopped=cancelled && !capture_failed;portEXIT_CRITICAL(&mux);if(stopped)cancellation_message();}
   pocket_http_close();
   if(!fault)pocket_setup_voice_release();
@@ -478,6 +701,9 @@ static void clock_synchronized(struct timeval *synchronized){
  if(!was_ready && pocket_clock_ready())ESP_LOGI("pocket_clock","ready=1 offset_minutes=480");
 }
 esp_err_t pocket_voice_init(void){
+#if CONFIG_POCKET_QUALIFICATION
+ qualification_init();
+#endif
  commands=xQueueCreate(1,sizeof(unsigned));
  if(!commands)return ESP_ERR_NO_MEM;
  esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);esp_sntp_setservername(0,"pool.ntp.org");esp_sntp_set_time_sync_notification_cb(clock_synchronized);esp_sntp_init();

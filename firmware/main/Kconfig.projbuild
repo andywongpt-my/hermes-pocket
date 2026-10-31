@@ -1,0 +1,69 @@
+menu "Pocket Live source verification"
+config POCKET_LIVE_WORKER_COMPILE
+    bool "Compile inactive Live worker and IDF adapter"
+    default n
+    depends on BSP_AUDIO_CALLBACK_RENDER
+    help
+        Compile-check only. The public device entry still returns NOT_SUPPORTED:
+        microphone/render timeline synchronization is not implemented. Does not
+        activate a UI mode, listener, key, connection, or hardware operation.
+        Compiles TCP transport logging out to avoid upstream credential logs.
+endmenu
+
+menu "Pocket paired Live source verification"
+config POCKET_LIVE_PAIRED_COMPILE
+    bool "Compile inactive paired-reference Live v2 source"
+    default n
+    depends on BSP_AUDIO_CALLBACK_RENDER
+    select POCKET_LIVE_WORKER_COMPILE
+    select LWIP_SO_LINGER
+    help
+        Source/build verification only. Includes paired ES8311-reference worker
+        and deadline-aware network prototype. Public entry still refuses until
+        physical acceptance; no UI activation or credential discovery. Enables
+        SDK SO_LINGER support in this experimental build for owner-only cleanup.
+endmenu
+
+menu "Pocket offline audio diagnostic"
+config POCKET_OFFLINE_DIAGNOSTIC
+    bool "Enable manually armed silent paired-audio diagnostic"
+    default n
+    depends on BSP_AUDIO_CALLBACK_RENDER
+    help
+        Adds a one-attempt-per-boot silent diagnostic to the normal Diagnostics
+        page. Hold OK to arm, then release and press OK again within ten seconds.
+        Uses the existing voice owner, with no tone, provider, network, recording
+        export or credential action. Any physical button press cancels an active
+        run. Counts and signal statistics are observations, not acoustic proof.
+        Ordinary startup and the default build remain unchanged.
+endmenu
+
+menu "Pocket inactive Live normal-app caller"
+config POCKET_LIVE_APP_CALLER
+    bool "Compile normal-app Live-only Chat caller (device admission refused)"
+    default n
+    depends on POCKET_LIVE_PAIRED_COMPILE
+    help
+        Opt-in source/build verification only. Replaces Chat hold-to-talk with
+        the Live session caller and Live-only presentation. The separate source
+        readiness gate remains hard false: this option does not validate hardware
+        or permit any Live credentials, audio, or connection. No legacy voice
+        fallback in this mode. Ordinary builds keep existing voice and controls.
+endmenu
+
+menu "Pocket local qualification (no production Live admission)"
+config POCKET_QUALIFICATION
+    bool "Compile bounded local qualification in normal Diagnostics"
+    default n
+    depends on POCKET_LIVE_PAIRED_COMPILE
+    depends on !POCKET_OFFLINE_DIAGNOSTIC
+    depends on ESP_CONSOLE_USB_SERIAL_JTAG && ESP_CONSOLE_SECONDARY_NONE
+    help
+        Test instrumentation only; the production Live gate remains hard false.
+        A separately approved host request plus fresh physical confirmation is
+        required. Owns one persistent USB Serial/JTAG driver for this boot and
+        preserves normal UI/standby controls. Never selects UART0. No provider
+        call, saved-key lookup or settings write belongs to this test path.
+        Silent capture and explicitly selected capped audio are distinct; cloud
+        compilation grants no permission to install, capture, export or play.
+endmenu

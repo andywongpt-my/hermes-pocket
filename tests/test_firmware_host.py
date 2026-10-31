@@ -36,7 +36,8 @@ void pocket_models_refresh(unsigned target){assert(target<2);model_refreshes++;p
 void pocket_models_disconnected(unsigned target){assert(target<2);model_disconnects++;pending_models[target]=false;}
 bool pocket_models_poll(unsigned target,const pocket_link_config *link,char *response,size_t capacity){
  assert(target<2&&link&&response==wire&&capacity==8192);
- if(!pending_models[target])return false;pending_models[target]=false;model_gets++;return true;
+ if(!pending_models[target]){return false;}
+ pending_models[target]=false;model_gets++;return true;
 }
 bool pocket_tasks_poll(unsigned target,const pocket_link_config *link,char *response,size_t capacity){
  assert(target<2&&link&&response==wire&&capacity==8192);

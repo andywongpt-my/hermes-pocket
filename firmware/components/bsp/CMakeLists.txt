@@ -11,3 +11,7 @@ idf_component_register(
     REQUIRES driver esp_driver_i2c esp_driver_i2s esp_lcd esp_lvgl_port button esp_adc esp_codec_dev
     PRIV_REQUIRES esp_timer
 )
+
+if(CONFIG_BSP_AUDIO_CALLBACK_RENDER)
+    target_sources(${COMPONENT_LIB} PRIVATE "src/bsp_audio_render.c" "src/bsp_audio_capture.c")
+endif()

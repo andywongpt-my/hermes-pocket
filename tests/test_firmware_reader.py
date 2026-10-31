@@ -206,7 +206,8 @@ int main(int argc,char **argv){
  }else if(argc>1 && !strcmp(argv[1],"full-result")){
   pocket_reader_open(0);pocket_reader_read(&out,text,sizeof text);unsigned total=0;
   for(unsigned i=0;i<86;i++){
-   if(i)CHECK(pocket_reader_turn(1),"64KiB next missing");fetch(full_pages[i]);pocket_reader_read(&out,text,sizeof text);
+   if(i)CHECK(pocket_reader_turn(1),"64KiB next missing");
+   fetch(full_pages[i]);pocket_reader_read(&out,text,sizeof text);
    CHECK(out.has_page && out.page==i && out.page_count==86 && out.total_utf8_bytes==65536,"64KiB page rejected");
    CHECK(out.utf8_bytes==(i<85?768u:256u),"64KiB page length changed");
    for(unsigned j=0;j<out.utf8_bytes;j++)CHECK(text[j]==(char)(33+i%80),"64KiB reconstruction changed a byte");

@@ -1,3 +1,4 @@
+#include "pocket_offline_diagnostic_ui.h"
 /* Hermes Pocket MIT. Screen layout and animated cartoon cat in pure LVGL. */
 #include "pocket_ui.h"
 #include "pocket_utf8.h"
@@ -438,6 +439,16 @@ void pocket_ui_render(const pocket_ui_view *v) {
   lv_label_set_text_fmt(body,"1. Join this Wi-Fi\n%s\nPassword: %s\n\n2. Open on your phone\nhttp://192.168.4.1",v->ssid,v->password);
   lv_label_set_text(footer,v->setup_message&&v->setup_message[0]?v->setup_message:"Finish setup on your phone");return;
  }
+ if(v->page==POCKET_DIAGNOSTICS&&v->qualification_mode){
+  /* Capture/export warnings outrank a retained reader overlay on this page. */
+  reader_view.active=reader_view.ready=reader_view.valid=reader_view.land_last=false;
+  set_badge(v->qualification_title&&v->qualification_title[0]?v->qualification_title:"QUALIFICATION",v->qualification_locked?CORAL:AMBER,60);
+  show(cat,false);show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);
+  lv_obj_set_style_text_font(body,&lv_font_montserrat_14,0);
+  lv_label_set_text(body,v->qualification_detail&&v->qualification_detail[0]?v->qualification_detail:"Qualification unavailable.\nNo capture started.");
+  lv_obj_set_style_text_font(footer,&lv_font_montserrat_14,0);
+  lv_label_set_text(footer,v->qualification_hint&&v->qualification_hint[0]?v->qualification_hint:"UP/DOWN: pages");return;
+ }
  if(v->reader_active){
   lv_label_set_text(title,"FULL REPLY");set_badge("READ / STORED TEXT",SKY,60);
   lv_obj_set_style_text_font(body,&text_font,0);lv_label_set_long_mode(body,LV_LABEL_LONG_WRAP);
@@ -472,6 +483,33 @@ void pocket_ui_render(const pocket_ui_view *v) {
  }
  reader_view.active=reader_view.ready=reader_view.valid=reader_view.land_last=false;
  if(v->page==POCKET_CHAT){
+  if(v->live_mode){
+   /* Live has no transcript channel here. Never reuse the legacy STT/reply. */
+   char status[128];
+   const char *heading="GPT LIVE",*message="Ready for a GPT Live session.";
+   const char *hint=v->busy?"Any press: stop\nUP/DOWN: pages":"OK: start GPT Live\nUP/DOWN: pages";
+   bool full=false;
+   if(v->live_cleanup_pending){
+    heading="AUDIO LOCKED";full=true;hint="Recovery needed\nUP/DOWN: pages";
+    message=v->voice_here&&v->message&&v->message[0]?v->message:"Audio recovery needed. No new session can start.";
+   }else if(!v->live_available){
+    heading="LIVE NOT READY";full=true;hint="Validation required\nUP/DOWN: pages";
+    message="Device validation required.\nNo session started.";
+   }else if(v->voice_here&&v->message&&v->message[0])message=v->message;
+   else if(v->busy)message="Audio is busy on another target.";
+   snprintf(status,sizeof status,"%.*s",(int)pocket_utf8_prefix(message,sizeof status-1),message);
+   lv_point_t size;
+   lv_text_get_size(&size,status,&text_font,0,0,184,LV_TEXT_FLAG_NONE);
+   /* Preserve the companion for fitting statuses; never ellipsize an outcome. */
+   full=full||size.y>60||(!v->busy&&v->voice_here&&v->message&&v->message[0]);
+   show(heard,false);
+   if(full){
+    show(cat,false);show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);
+    lv_obj_set_style_text_font(body,&lv_font_montserrat_14,0);lv_label_set_text(body,status);
+   }else{show(bubble,true);lv_label_set_text(said,status);}
+   set_badge(heading,v->live_cleanup_pending?CORAL:!v->live_available?AMBER:MINT,full?60:154);
+   lv_obj_set_style_text_font(footer,&lv_font_montserrat_14,0);lv_label_set_text(footer,hint);return;
+  }
   if(!active&&!v->online)set_badge("HERMES OFFLINE",SLATE,154);
   else set_badge(!v->voice_here?"READY TO CHAT":v->recording?"LISTENING":v->playing?"SPEAKING":v->busy?"THINKING":"LET'S TALK",
                  !v->voice_here?MINT:v->recording?CORAL:v->playing?SKY:v->busy?AMBER:MINT,154);
@@ -485,6 +523,12 @@ void pocket_ui_render(const pocket_ui_view *v) {
   lv_label_set_text(footer,v->busy?"OK: stop\nUP/DOWN: pages":"Hold OK: talk\nUP/DOWN: pages");return;
  }
  if(v->page==POCKET_MODELS){
+  if(v->live_mode){
+   set_badge("LIVE MODEL ROUTING",SKY,60);
+   show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);
+   lv_label_set_text(body,"Voice: GPT-Live\nHermes configured default\nreasoning model.\n\nLegacy per-turn choices\nare not applied in Live.\nRead-only in this mode.");
+   lv_label_set_text(footer,"Read-only in Live mode\nUP/DOWN: pages");return;
+  }
   bool pending=v->model_candidate!=v->model_choice,unverified=(v->models_available_mask&4u)&&!(v->models_verified_mask&4u);
   set_badge(v->busy?"BUSY":pending||v->model_apply_failed?"NOT APPLIED":"NEXT TURN",v->busy||pending||v->model_apply_failed?AMBER:MINT,60);
   show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);
@@ -505,6 +549,17 @@ void pocket_ui_render(const pocket_ui_view *v) {
   home_footer(v);return;
  }
  if(v->page==POCKET_DIAGNOSTICS){
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+  if(v->offline_diagnostic){
+   char title[40],detail[240],hint[100];
+   /* Read-only rotation; no added key gesture can consume an active Stop. */
+   const unsigned pane=v->uptime_ms>0?(unsigned)((uint64_t)v->uptime_ms/POCKET_DIAGNOSTIC_PAGE_MS%POCKET_DIAGNOSTIC_PAGES):0;
+   pocket_offline_diagnostic_format_page(v->offline_diagnostic,pane,title,sizeof title,detail,sizeof detail,hint,sizeof hint);
+   set_badge(title,v->offline_diagnostic->phase==PDIAG_CLEANUP_FAILED?CORAL:AMBER,60);
+   show(body,true);lv_obj_set_pos(body,20,96);lv_obj_set_height(body,166);lv_label_set_text(body,detail);
+   lv_label_set_text(footer,hint);return;
+  }
+#endif
   char status[40],detail[240];
   pocket_diagnostics_format(v->diagnostics,v->uptime_ms,v->busy,status,sizeof(status),detail,sizeof(detail));
   set_badge(status,v->diagnostics&&v->diagnostics->backend_available?SKY:AMBER,60);

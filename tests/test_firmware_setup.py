@@ -398,7 +398,8 @@ static int status_contract(void) {
 static void add_saved(const char *ssid);
 static bool queue_contains(const char *text);
 static void queued_scan_callback(void) {
- if(!enqueue_during_scan)return;enqueue_during_scan=false;
+ if(!enqueue_during_scan)return;
+ enqueue_during_scan=false;
  scan_enqueue_status=authorized(wifi_join,"/wifi/join","{\"ssid\":\"Synthetic During Scan\",\"password\":\"during-scan-fixture\"}");
 }
 static int queued_join_cleanup(void) {
@@ -808,7 +809,8 @@ int main(int argc,char **argv) {
  else if(!strcmp(name,"cancel-forget-p2"))result=cancelled_queued_forget();
  else if(!strcmp(name,"cleanup-disconnect-associate-p2")||!strcmp(name,"cleanup-associate-disconnect-p2"))result=cleanup_late_association_no_ip(!strcmp(name,"cleanup-disconnect-associate-p2"));
 #endif
- if(!result)printf("PASS setup %s\n",name);return result;
+ if(!result)printf("PASS setup %s\n",name);
+ return result;
 }
 '''
 

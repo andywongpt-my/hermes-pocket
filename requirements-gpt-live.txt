@@ -1,0 +1,4 @@
+# Optional host deployment only; not installed or activated by source import.
+# Live connection controls were reviewed against official 3.41.0 source.
+openai==3.41.0
+websockets==16.0

@@ -1,6 +1,10 @@
 // components/bsp/src/bsp_audio.c
 // 移植自 trae_card/components/platform/platform_esp32/src/audio_es8311.c
 #include "bsp_audio.h"
+#include "sdkconfig.h"
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+#include "esp_timer.h"
+#endif
 #include "bsp_es8311_sleep_check.h"
 #include "bsp_i2c.h"
 #include "bsp_pins.h"
@@ -32,11 +36,39 @@ static esp_err_t s_sleep_result;
 static bool     s_codec_release_failed;
 static uint8_t  s_volume;
 static int      s_io_error;
+/* Off by default: checked callers explicitly request a persistent mute guard.
+ * This is codec control, not a PA hardware kill or an acoustic guarantee. */
+static bool s_checked_mute_latched;
+static bool s_checked_volume_active, s_checked_volume_written;
+static uint8_t s_checked_volume_expected;
 
 // Static internal RAM remains valid through codec/channel teardown. The ISR
 // never dereferences a codec or channel handle, including during cleanup.
 static DRAM_ATTR portMUX_TYPE s_tx_completion_lock = portMUX_INITIALIZER_UNLOCKED;
 static DRAM_ATTR uint32_t s_tx_completed;
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+static DRAM_ATTR bsp_audio_render_t s_render;
+static DRAM_ATTR bsp_audio_render_span_t s_render_spans[32];
+static DRAM_ATTR unsigned s_render_span_head, s_render_span_count;
+static bool s_render_owned, s_render_needs_reopen;
+static DRAM_ATTR bsp_audio_capture_t s_capture;
+static DRAM_ATTR bool s_reference_mode;
+static bool s_reference_restore_pending;
+/* Caller-owned serialization, not a task identity or mutex. Retain the lease
+ * on cleanup failure so normal audio cannot mistake partial recovery for OK. */
+static bool s_diagnostic_owned, s_diagnostic_cleanup_failed;
+static bool s_diagnostic_saved_mute;
+static uint8_t s_diagnostic_saved_volume, s_diagnostic_saved_bits, s_diagnostic_saved_ch;
+static uint32_t s_diagnostic_saved_hz;
+/* Synchronous delegation only: NOT a mutex or task identity. The existing
+ * audio worker must exclusively own every lifecycle and PCM operation. */
+static bool s_live_owned, s_live_delegating, s_live_ready, s_live_enabled;
+static bool s_live_failed, s_live_cleanup_failed, s_live_saved_mute;
+static uint32_t s_live_epoch, s_live_saved_hz;
+static uint8_t s_live_requested_volume, s_live_saved_volume, s_live_saved_bits, s_live_saved_ch;
+static uint32_t s_reference_restore_hz;
+static uint8_t s_reference_restore_bits, s_reference_restore_ch;
+#endif
 
 static bool IRAM_ATTR audio_tx_sent(i2s_chan_handle_t channel,
                                    i2s_event_data_t *event, void *context) {
@@ -45,9 +77,63 @@ static bool IRAM_ATTR audio_tx_sent(i2s_chan_handle_t channel,
     (void)context;
     portENTER_CRITICAL_ISR(&s_tx_completion_lock);
     s_tx_completed++;
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_render.active) {
+        if (!s_reference_mode && s_render_span_count == 32) {
+            s_render.failed = true;
+            s_render.active = false;
+        } else if (event && bsp_audio_render_complete(&s_render, s_render.epoch,
+                                                      event->dma_buf, event->size)) {
+            /* v2 reference comes from paired RX. Its unused diagnostic-span
+             * queue must not impose a hidden consumer/deadline on streaming. */
+            if (!s_reference_mode) {
+                unsigned at = (s_render_span_head + s_render_span_count) % 32;
+                s_render_spans[at] = s_render.completed;
+                s_render_span_count++;
+            }
+        } else {
+            s_render.failed = true;
+            s_render.active = false;
+        }
+    }
+#endif
     portEXIT_CRITICAL_ISR(&s_tx_completion_lock);
     return false;
 }
+
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+#if !CONFIG_I2S_ISR_IRAM_SAFE
+#error "Callback render requires the IRAM-safe I2S interrupt path"
+#endif
+static bool IRAM_ATTR audio_rx_overflow(i2s_chan_handle_t channel,
+                                        i2s_event_data_t *event, void *context) {
+    (void)channel; (void)event; (void)context;
+    portENTER_CRITICAL_ISR(&s_tx_completion_lock);
+    /* Paired mode copies every RX descriptor itself. Its unused driver queue
+     * naturally fills; only our owned queue/order/deadline establishes loss. */
+    if (s_render.active && !s_reference_mode) {
+        s_render.failed = true;
+        s_render.active = false;
+    }
+    portEXIT_CRITICAL_ISR(&s_tx_completion_lock);
+    return false;
+}
+
+static bool IRAM_ATTR audio_rx_received(i2s_chan_handle_t channel,
+                                        i2s_event_data_t *event, void *context) {
+    (void)channel; (void)context;
+    portENTER_CRITICAL_ISR(&s_tx_completion_lock);
+    if (s_reference_mode && s_render.active) {
+        if (!event || !bsp_audio_capture_complete(&s_capture, s_render.epoch,
+                event->dma_buf, event->size, esp_timer_get_time(), s_render.dma_completed)) {
+            s_render.failed = true;
+            s_render.active = false;
+        }
+    }
+    portEXIT_CRITICAL_ISR(&s_tx_completion_lock);
+    return false;
+}
+#endif
 
 static uint32_t audio_tx_completions(void) {
     portENTER_CRITICAL(&s_tx_completion_lock);
@@ -79,7 +165,22 @@ static int audio_ctrl_read(const audio_codec_ctrl_if_t *ctrl, int reg,
 static int audio_ctrl_write(const audio_codec_ctrl_if_t *ctrl, int reg,
                             int reg_len, void *data, int data_len) {
     (void)ctrl;
-    return audio_track_error(s_ctrl->write_reg(s_ctrl, reg, reg_len, data, data_len));
+    uint8_t guarded;
+    if (reg == 0x31 && s_checked_mute_latched && reg_len == 1 && data_len == 1 && data) {
+        guarded = *(const uint8_t *)data | 0x60u;
+        data = &guarded;
+    }
+    if (reg == 0x32 && s_checked_volume_active) {
+        if (reg_len != 1 || data_len != 1 || !data ||
+            *(const uint8_t *)data != s_checked_volume_expected) {
+            return audio_track_error(ESP_CODEC_DEV_DRV_ERR);
+        }
+    }
+    int result = s_ctrl->write_reg(s_ctrl, reg, reg_len, data, data_len);
+    if (reg == 0x32 && s_checked_volume_active && result == ESP_CODEC_DEV_OK) {
+        s_checked_volume_written = true;
+    }
+    return audio_track_error(result);
 }
 
 static int audio_ctrl_info(const audio_codec_ctrl_if_t *ctrl,
@@ -98,6 +199,25 @@ static bool audio_data_is_open(const audio_codec_data_if_t *data) {
     return s_data && s_data->is_open(s_data);
 }
 
+static int audio_data_enable_one(esp_codec_dev_type_t type, bool enable) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    bool stopped_render_channel = false;
+    if (!enable && s_render_needs_reopen) {
+        i2s_chan_info_t info;
+        i2s_chan_handle_t channel = type == ESP_CODEC_DEV_TYPE_OUT ? s_tx : s_rx;
+        stopped_render_channel = channel && i2s_channel_get_info(channel, &info) == ESP_OK && !info.is_enabled;
+    }
+#endif
+    int result = s_data->enable(s_data, type, enable);
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    /* codec1.6.2 close disables even independently stopped channels. Still call
+     * its interface to clear its enabled flags; normalize ONLY that verified
+     * redundant driver's disable error, never an enabled-channel/codec error. */
+    if (stopped_render_channel && result == ESP_CODEC_DEV_DRV_ERR) result = ESP_CODEC_DEV_OK;
+#endif
+    return audio_track_error(result);
+}
+
 static int audio_data_enable(const audio_codec_data_if_t *data,
                              esp_codec_dev_type_t type, bool enable) {
     (void)data;
@@ -106,9 +226,9 @@ static int audio_data_enable(const audio_codec_data_if_t *data,
     esp_codec_dev_type_t first = enable ? ESP_CODEC_DEV_TYPE_OUT : ESP_CODEC_DEV_TYPE_IN;
     esp_codec_dev_type_t last = enable ? ESP_CODEC_DEV_TYPE_IN : ESP_CODEC_DEV_TYPE_OUT;
     int result = ESP_CODEC_DEV_OK;
-    if (type & first) result = audio_track_error(s_data->enable(s_data, first, enable));
+    if (type & first) result = audio_data_enable_one(first, enable);
     if (type & last) {
-        int next = audio_track_error(s_data->enable(s_data, last, enable));
+        int next = audio_data_enable_one(last, enable);
         if (result == ESP_CODEC_DEV_OK) result = next;
     }
     return result;
@@ -330,8 +450,13 @@ static esp_err_t i2s_full_duplex_init(void) {
         .role = I2S_ROLE_MASTER,
         .dma_desc_num = AUDIO_DMA_DESC_COUNT,
         .dma_frame_num = 240,
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+        .auto_clear_after_cb = false,
+        .auto_clear_before_cb = true,
+#else
         .auto_clear_after_cb = true,
         .auto_clear_before_cb = false,
+#endif
         .intr_priority = 0,
     };
     esp_err_t e = i2s_new_channel(&chan, &s_tx, &s_rx);
@@ -377,6 +502,11 @@ static esp_err_t i2s_full_duplex_init(void) {
         ESP_LOGE(TAG, "I2S TX completion callback: %s", esp_err_to_name(e));
         return e;
     }
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    const i2s_event_callbacks_t rx_callbacks = { .on_recv = audio_rx_received, .on_recv_q_ovf = audio_rx_overflow };
+    e = i2s_channel_register_event_callback(s_rx, &rx_callbacks, NULL);
+    if (e != ESP_OK) return e;
+#endif
     // esp_codec_dev_open 内部重配前会先 i2s_channel_disable,而 disable 要求通道处于
     // RUNNING;刚 init 的通道是 READY,会打一条 "channel has not been enabled yet" 错误日志。
     // 这里先 enable 一次让那次 disable 合法(此时 codec 未配,不出声)。
@@ -398,7 +528,11 @@ static esp_err_t audio_create_codec(void) {
         .master_mode = false,
         .use_mclk = true,
         .hw_gain = { .pa_voltage = 5.0f, .codec_dac_voltage = 3.3f },
+        #if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+        .no_dac_ref = !s_reference_mode,
+#else
         .no_dac_ref = true, // Mono capture must use ADC, not the DAC reference.
+#endif
     });
     if (!s_codec || s_io_error != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "es8311_codec_new 失败: %d", s_io_error);
@@ -418,6 +552,9 @@ static esp_err_t audio_create_codec(void) {
 }
 
 esp_err_t bsp_audio_init(void) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
     if (s_codec_release_failed) return ESP_ERR_INVALID_STATE;
     if (s_initialized) return ESP_OK;
     if (s_tx || s_rx || s_ctrl || s_data || s_codec || s_gpio) {
@@ -464,9 +601,19 @@ fail:
 }
 
 esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_render_owned) return ESP_ERR_INVALID_STATE;
+#endif
     if (!s_initialized) return ESP_ERR_INVALID_STATE;
     if (s_sleeping) return ESP_ERR_INVALID_STATE;
-    if (s_opened && s_hz == hz && s_bits == bits && s_ch == ch) return ESP_OK;   // 同格式复用
+    if (s_opened && s_hz == hz && s_bits == bits && s_ch == ch
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+        && !s_render_needs_reopen
+#endif
+    ) return ESP_OK;   // 同格式复用
 
     esp_err_t e = ESP_FAIL;
     s_io_error = ESP_CODEC_DEV_OK;
@@ -483,7 +630,11 @@ esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
     esp_codec_dev_sample_info_t fs = {
         .bits_per_sample = bits,
         .channel = ch,
+        #if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+        .channel_mask = s_reference_mode ? (ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0) | ESP_CODEC_DEV_MAKE_CHANNEL_MASK(1)) : ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0),
+#else
         .channel_mask = ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0),
+#endif
         .sample_rate = hz,
         .mclk_multiple = 0,          // 0 → 驱动按默认 256xfs 取 MCLK
     };
@@ -496,7 +647,10 @@ esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
 
     // ⚠ open 之后【不要】手动覆写 ES8311 的时钟分频寄存器(REG01~06):
     //   驱动已按采样率与 MCLK 精确算好,覆写会导致 ADC/DAC 时序错乱、录音回放全是杂音。
-    //   这里只设麦克风模拟 PGA 增益。
+    // Pinned esp_codec_dev 1.6.2 set_in_gain(30) writes ADC register 0x16=0x05,
+    // not the analog PGA: codec start separately sets 0x14=0x1A and 0x17=0xBF.
+    // The full-byte gain write also clears ADC_SYNC bit 5 from init 0x24.
+    // This documents existing behavior only; no gain/clock register change here.
     r = esp_codec_dev_set_in_gain(s_dev, 30.0f);
     if (r == ESP_CODEC_DEV_OK) r = esp_codec_dev_set_out_vol(s_dev, s_volume);
     if (r != ESP_CODEC_DEV_OK || s_io_error != ESP_CODEC_DEV_OK) {
@@ -505,6 +659,9 @@ esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
     }
 
     s_opened = true; s_hz = hz; s_bits = bits; s_ch = ch;
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    s_render_needs_reopen = false;
+#endif
     ESP_LOGI(TAG, "codec 打开 %luHz/%ubit/%uch", (unsigned long)hz, bits, ch);
     return ESP_OK;
 
@@ -518,6 +675,12 @@ fail:
 }
 
 esp_err_t bsp_audio_sleep(void) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_render_owned) return ESP_ERR_INVALID_STATE;
+#endif
     if (!s_initialized) return ESP_OK;
     if (s_sleeping) return s_sleep_result;
 
@@ -540,6 +703,12 @@ esp_err_t bsp_audio_sleep(void) {
 }
 
 esp_err_t bsp_audio_prepare_deep_sleep(void) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_render_owned) return ESP_ERR_INVALID_STATE;
+#endif
     esp_err_t first_error = audio_disable_i2s_channels();
     const int pins[] = {
         BSP_I2S_MCLK, BSP_I2S_BCLK, BSP_I2S_WS, BSP_I2S_DOUT, BSP_I2S_DIN,
@@ -567,6 +736,9 @@ esp_err_t bsp_audio_prepare_deep_sleep(void) {
 }
 
 esp_err_t bsp_audio_wake(void) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
     if (!s_initialized || !s_sleeping) return ESP_OK;
 
     // 允许内部格式设置重新 open codec；失败时再次 close，避免留下半唤醒状态。
@@ -588,6 +760,9 @@ esp_err_t bsp_audio_wake(void) {
 }
 
 esp_err_t bsp_audio_write(const void *pcm, size_t bytes) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned || s_diagnostic_owned || s_render_owned || s_render_needs_reopen) return ESP_ERR_INVALID_STATE;
+#endif
     if (!s_dev || !s_opened || s_sleeping) return ESP_ERR_INVALID_STATE;
     return esp_codec_dev_write(s_dev, (void *)pcm, bytes) == 0 ? ESP_OK : ESP_FAIL;
 }
@@ -598,6 +773,9 @@ esp_err_t bsp_audio_drain(uint32_t timeout_ms) {
 
 esp_err_t bsp_audio_drain_cancel(uint32_t timeout_ms,
                                  bool (*cancelled)(void *), void *context) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned || s_diagnostic_owned) return ESP_ERR_INVALID_STATE;
+#endif
     if (!s_dev || !s_opened || s_sleeping || !s_tx) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -623,11 +801,438 @@ esp_err_t bsp_audio_drain_cancel(uint32_t timeout_ms,
 }
 
 esp_err_t bsp_audio_read(void *pcm, size_t bytes) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned || s_diagnostic_owned || s_render_owned || s_render_needs_reopen) return ESP_ERR_INVALID_STATE;
+#endif
     if (!s_dev || !s_opened || s_sleeping) return ESP_ERR_INVALID_STATE;
     return esp_codec_dev_read(s_dev, pcm, bytes) == 0 ? ESP_OK : ESP_FAIL;
 }
 
+esp_err_t bsp_audio_prepare_silent_start(void) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
+    if (s_initialized || s_dev || s_ctrl || s_tx || s_rx || s_data || s_codec || s_gpio) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_checked_mute_latched = true;
+    s_volume = 0;
+    return ESP_OK; /* software intent only; checked hardware readback follows init */
+}
+
+esp_err_t bsp_audio_set_mute_checked(bool muted) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_diagnostic_owned && !muted) return ESP_ERR_INVALID_STATE;
+#endif
+    if (!s_initialized || !s_dev || !s_ctrl || s_sleeping) return ESP_ERR_INVALID_STATE;
+    /* Latch true until an independently read unmute has succeeded. Direct
+     * public ctrl I/O avoids codec1.6.2's swallowed mute-write errors and its
+     * use of an uninitialized register value when its initial read fails. */
+    s_checked_mute_latched = true;
+    s_io_error = ESP_CODEC_DEV_OK;
+    uint8_t before = 0, after = 0;
+    if (audio_ctrl_read(&s_checked_ctrl, 0x31, 1, &before, 1) != ESP_CODEC_DEV_OK) {
+        s_volume = 0;
+        return ESP_FAIL;
+    }
+    uint8_t desired = (uint8_t)((before & (uint8_t)~0x60u) | (muted ? 0x60u : 0));
+    int result = audio_track_error(s_ctrl->write_reg(s_ctrl, 0x31, 1, &desired, 1));
+    if (result != ESP_CODEC_DEV_OK ||
+        audio_ctrl_read(&s_checked_ctrl, 0x31, 1, &after, 1) != ESP_CODEC_DEV_OK ||
+        after != desired || s_io_error != ESP_CODEC_DEV_OK) {
+        /* Best effort only: an I2C fault can prevent muting; return failure. */
+        s_volume = 0;
+        uint8_t safe = before | 0x60u;
+        (void)audio_ctrl_write(&s_checked_ctrl, 0x31, 1, &safe, 1);
+        return ESP_FAIL;
+    }
+    s_checked_mute_latched = muted;
+    return ESP_OK;
+}
+
+esp_err_t bsp_audio_set_volume_checked(uint8_t percent) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+#endif
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_diagnostic_owned && percent) return ESP_ERR_INVALID_STATE;
+#endif
+    if (percent > 100) return ESP_ERR_INVALID_ARG;
+    if (!s_initialized || !s_dev || !s_ctrl || s_sleeping) return ESP_ERR_INVALID_STATE;
+    if (bsp_audio_set_mute_checked(true) != ESP_OK) {
+        s_volume = 0;
+        return ESP_FAIL;
+    }
+    /* Exact pinned ES8311/default curve + this BSP's5V/3.3V,pa_gain0 profile:
+     * dB(p>0)=-50+p/2; dB(0)=-96; hw_gain=20log10(3.3/5).
+     * REG32=floor(2*(dB-hw_gain+95.5)): p>0 =>98+p, p0=>6.
+     * Reject a wrong curve/software-volume/no-write path BEFORE a louder write.
+     * These are digital attenuation settings, not calibrated speaker SPL.
+     */
+    s_checked_volume_expected = percent ? (uint8_t)(98u + percent) : 6u;
+    s_checked_volume_written = false;
+    s_checked_volume_active = true;
+    s_io_error = ESP_CODEC_DEV_OK;
+    int result = esp_codec_dev_set_out_vol(s_dev, percent);
+    s_checked_volume_active = false;
+    uint8_t actual = 0;
+    if (result != ESP_CODEC_DEV_OK || s_io_error != ESP_CODEC_DEV_OK || !s_checked_volume_written ||
+        audio_ctrl_read(&s_checked_ctrl, 0x32, 1, &actual, 1) != ESP_CODEC_DEV_OK ||
+        actual != s_checked_volume_expected || s_io_error != ESP_CODEC_DEV_OK) goto failed;
+    s_volume = percent;
+    if (percent && bsp_audio_set_mute_checked(false) != ESP_OK) goto failed;
+    return ESP_OK;
+failed:
+    s_volume = 0;
+    (void)bsp_audio_set_mute_checked(true);
+    return ESP_FAIL;
+}
+
 void bsp_audio_set_volume(uint8_t percent) {
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+    if (s_live_owned || s_diagnostic_owned) return;
+#endif
     s_volume = percent > 100 ? 100 : percent;
     if (s_dev && s_opened && !s_sleeping) esp_codec_dev_set_out_vol(s_dev, s_volume);
 }
+
+#if CONFIG_BSP_AUDIO_CALLBACK_RENDER
+esp_err_t bsp_audio_render_start(uint32_t epoch) {
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+    if (!epoch || s_render_owned || !s_dev || !s_opened || s_sleeping ||
+        s_hz != 24000 || s_bits != 16 || s_ch != (s_reference_mode ? 2 : 1)) return ESP_ERR_INVALID_STATE;
+    /* Own even a failed start until explicit stop: stopped/partially started
+     * channels must never fall through to legacy writes or same-format reuse. */
+    s_render_owned = true;
+    s_render_needs_reopen = true;
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    s_render.active = false;
+    s_render.failed = true;
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    /* Owner has joined legacy readers/writers. Stop RX before its TX clock. */
+    esp_err_t e = i2s_channel_disable(s_rx);
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) return e;
+    e = i2s_channel_disable(s_tx);
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) return e;
+    static const int16_t silence[BSP_RENDER_FRAMES * 2] = {0};
+    size_t silence_bytes = BSP_RENDER_FRAMES * s_ch * sizeof(int16_t);
+    for (unsigned i = 0; i < BSP_RENDER_DESCRIPTORS; i++) {
+        size_t loaded = 0;
+        e = i2s_channel_preload_data(s_tx, silence, silence_bytes, &loaded);
+        if (e != ESP_OK || loaded != silence_bytes) return ESP_FAIL;
+    }
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    bool ready = bsp_audio_render_begin(&s_render, epoch, s_ch);
+    if (ready && s_reference_mode) ready = bsp_audio_capture_begin(&s_capture, epoch);
+    s_render_span_head = s_render_span_count = 0;
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    if (!ready) return ESP_FAIL;
+    s_render_owned = true;
+    e = i2s_channel_enable(s_tx);
+    if (e == ESP_OK) e = i2s_channel_enable(s_rx);
+    if (e != ESP_OK) {
+        (void)bsp_audio_render_stop_output();
+        s_render_owned = true;
+        portENTER_CRITICAL(&s_tx_completion_lock);
+        s_render.failed = true;
+        portEXIT_CRITICAL(&s_tx_completion_lock);
+        return e;
+    }
+    return ESP_OK;
+}
+
+esp_err_t bsp_audio_render_submit(uint32_t epoch, uint32_t offset,
+                                  const int16_t *pcm, size_t samples) {
+    if (s_diagnostic_owned || !s_render_owned ||
+        (s_live_owned && (!s_live_enabled || s_live_failed))) return ESP_ERR_INVALID_STATE;
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    bool healthy = !s_live_owned || (s_capture.active && !s_capture.failed &&
+                                    s_capture.epoch == s_live_epoch);
+    bool ok = healthy && bsp_audio_render_enqueue(&s_render, epoch, offset, pcm, samples);
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    if (s_live_owned && !ok) s_live_failed = true;
+    return ok ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+esp_err_t bsp_audio_render_status(bsp_audio_render_status_t *out) {
+    if (!out) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    *out = (bsp_audio_render_status_t){
+        .epoch=s_render.epoch, .accepted=s_render.accepted, .dma_completed=s_render.dma_completed,
+        .dma_samples=s_render.dma_samples, .queued_samples=s_render.queued,
+        .active=s_render.active, .failed=s_render.failed};
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    return ESP_OK;
+}
+
+esp_err_t bsp_audio_render_poll(bsp_audio_render_span_t *out) {
+    if (!out) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    bool available = s_render_span_count != 0;
+    if (available) {
+        *out = s_render_spans[s_render_span_head];
+        s_render_span_head = (s_render_span_head + 1) % 32;
+        s_render_span_count--;
+    }
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    return available ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t bsp_audio_read_bounded(void *pcm, size_t bytes, size_t *received,
+                                  uint32_t timeout_ms) {
+    if (!received) return ESP_ERR_INVALID_ARG;
+    *received = 0;
+    if (s_live_owned || s_diagnostic_owned || !s_render_owned || s_reference_mode || !pcm || !bytes || bytes > 960 || bytes % 2 ||
+        !timeout_ms || timeout_ms > 50) return ESP_ERR_INVALID_STATE;
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    bool valid = s_render.active && !s_render.failed;
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    if (!valid) return ESP_ERR_INVALID_STATE;
+    esp_err_t result = i2s_channel_read(s_rx, pcm, bytes, received, timeout_ms);
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    valid = s_render.active && !s_render.failed;
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    if (!valid) {
+        *received = 0;
+        return ESP_ERR_INVALID_STATE;
+    }
+    return result;
+}
+
+esp_err_t bsp_audio_render_stop_output(void) {
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    bsp_audio_render_stop(&s_render);
+    bsp_audio_capture_stop(&s_capture);
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    /* Owner must join the bounded capture operation before this call. */
+    esp_err_t first = i2s_channel_disable(s_rx);
+    if (first == ESP_ERR_INVALID_STATE) first = ESP_OK;
+    esp_err_t next = i2s_channel_disable(s_tx);
+    if (next == ESP_ERR_INVALID_STATE) next = ESP_OK;
+    if (first == ESP_OK) first = next;
+    if (first == ESP_OK) s_render_owned = false;
+    return first;
+}
+
+static bool audio_reference_layout_valid(i2s_chan_handle_t channel) {
+    i2s_chan_info_t info;
+    if (i2s_channel_get_info(channel, &info) != ESP_OK ||
+        info.mode != I2S_COMM_MODE_STD || !info.mode_cfg ||
+        info.total_dma_buf_size != BSP_RENDER_DESCRIPTORS * BSP_CAPTURE_FRAME_BYTES) return false;
+    const i2s_std_config_t *cfg = info.mode_cfg;
+    return cfg->clk_cfg.sample_rate_hz == 24000 &&
+           cfg->slot_cfg.data_bit_width == I2S_DATA_BIT_WIDTH_16BIT &&
+           cfg->slot_cfg.slot_mode == I2S_SLOT_MODE_STEREO &&
+           cfg->slot_cfg.slot_mask == I2S_STD_SLOT_BOTH;
+}
+
+esp_err_t bsp_audio_reference_start(uint32_t epoch) {
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+    if (!epoch || !s_initialized || !s_opened || s_sleeping || s_render_owned ||
+        s_reference_restore_pending) return ESP_ERR_INVALID_STATE;
+    s_reference_restore_hz = s_hz;
+    s_reference_restore_bits = s_bits;
+    s_reference_restore_ch = s_ch;
+    s_reference_restore_pending = true;
+    s_reference_mode = true;
+    s_render_needs_reopen = true;
+    esp_err_t e = bsp_audio_set_format(24000, 16, 2);
+    uint8_t route = 0;
+    if (e == ESP_OK && (audio_ctrl_read(&s_checked_ctrl, 0x44, 1, &route, 1) != ESP_CODEC_DEV_OK ||
+            route != 0x58 || !audio_reference_layout_valid(s_tx) || !audio_reference_layout_valid(s_rx))) e = ESP_FAIL;
+    if (e == ESP_OK) e = bsp_audio_render_start(epoch);
+    if (e != ESP_OK) (void)bsp_audio_reference_stop();
+    return e;
+}
+
+esp_err_t bsp_audio_reference_poll(bsp_audio_capture_frame_t *out) {
+    if (!out) return ESP_ERR_INVALID_ARG;
+    if (!s_reference_mode || !s_render_owned) return ESP_ERR_INVALID_STATE;
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    bool failed = s_render.failed || !s_render.active || s_capture.failed;
+    bool ready = !failed && bsp_audio_capture_poll(&s_capture, out);
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    return failed ? ESP_ERR_INVALID_STATE : (ready ? ESP_OK : ESP_ERR_NOT_FOUND);
+}
+
+esp_err_t bsp_audio_reference_stop(void) {
+    if (s_live_owned && !s_live_delegating) return ESP_ERR_INVALID_STATE;
+    if (!s_reference_restore_pending) return ESP_OK;
+    esp_err_t e = bsp_audio_render_stop_output();
+    if (e != ESP_OK) return e;
+    s_reference_mode = false;
+    s_render_needs_reopen = true;
+    e = bsp_audio_set_format(s_reference_restore_hz, s_reference_restore_bits, s_reference_restore_ch);
+    if (e == ESP_OK) s_reference_restore_pending = false;
+    return e;
+}
+
+/* No diagnostic output is submitted: the preloaded/idle TX ring stays zero.
+ * This requests/reads digital mute; it cannot prove acoustic silence. */
+esp_err_t bsp_audio_diagnostic_begin(uint32_t epoch, bool *cleanup_required) {
+    if (!cleanup_required) return ESP_ERR_INVALID_ARG;
+    *cleanup_required = false;
+    if (!epoch) return ESP_ERR_INVALID_ARG;
+    if (s_live_owned || s_diagnostic_owned || s_render_owned || s_reference_restore_pending ||
+        s_codec_release_failed) return ESP_ERR_INVALID_STATE;
+    s_diagnostic_saved_volume = s_volume;
+    s_diagnostic_saved_hz = s_hz ? s_hz : 16000;
+    s_diagnostic_saved_bits = s_bits ? s_bits : 16;
+    s_diagnostic_saved_ch = s_ch ? s_ch : 1;
+    s_diagnostic_saved_mute = s_checked_mute_latched;
+    s_diagnostic_owned = true;
+    s_diagnostic_cleanup_failed = false;
+    *cleanup_required = true;
+    s_checked_mute_latched = true;
+    s_volume = 0;
+    esp_err_t e = bsp_audio_init();
+    if (e == ESP_OK) e = bsp_audio_wake();
+    if (e == ESP_OK) e = bsp_audio_set_volume_checked(0);
+    if (e == ESP_OK) e = bsp_audio_set_format(16000, 16, 1);
+    if (e == ESP_OK) e = bsp_audio_set_volume_checked(0);
+    if (e == ESP_OK) e = bsp_audio_reference_start(epoch);
+    if (e == ESP_OK) e = bsp_audio_set_volume_checked(0);
+    return e; /* The caller MUST end even when this returns an error. */
+}
+
+esp_err_t bsp_audio_diagnostic_end(void) {
+    if (!s_diagnostic_owned) return ESP_ERR_INVALID_STATE;
+    s_checked_mute_latched = true;
+    s_volume = 0;
+    esp_err_t first = s_diagnostic_cleanup_failed ? ESP_FAIL : ESP_OK;
+    if (!s_initialized || s_codec_release_failed) first = ESP_FAIL;
+    if (s_dev && !s_sleeping && bsp_audio_set_volume_checked(0) != ESP_OK) first = ESP_FAIL;
+    if (bsp_audio_reference_stop() != ESP_OK) first = ESP_FAIL;
+    if (s_initialized && !s_sleeping && !s_render_owned && !s_reference_restore_pending) {
+        if (bsp_audio_set_format(s_diagnostic_saved_hz, s_diagnostic_saved_bits,
+                                 s_diagnostic_saved_ch) != ESP_OK ||
+            bsp_audio_set_volume_checked(0) != ESP_OK) first = ESP_FAIL;
+    }
+    if (bsp_audio_sleep() != ESP_OK) first = ESP_FAIL;
+    /* stop holds the ISR lock before clearing active; subsequent callbacks
+     * cannot copy PCM. Only our owned queue is scrubbed, NOT driver RX DMA. */
+    if (!s_render_owned && !s_capture.active) {
+        volatile uint8_t *raw = (volatile uint8_t *)s_capture.queue;
+        for (size_t i = 0; i < sizeof(s_capture.queue); ++i) raw[i] = 0;
+    }
+    if (!s_initialized || !s_sleeping || s_sleep_result != ESP_OK || s_dev ||
+        s_render_owned || s_reference_restore_pending || s_codec_release_failed ||
+        s_hz != s_diagnostic_saved_hz || s_bits != s_diagnostic_saved_bits ||
+        s_ch != s_diagnostic_saved_ch) first = ESP_FAIL;
+    if (first != ESP_OK) {
+        s_diagnostic_cleanup_failed = true;
+        return first; /* Reboot required: no silent release after a failed end. */
+    }
+    /* Hardware stays asleep. Restore only normal software behavior; NEVER
+     * invoke an unmute or volume write here. UI state and NVS are untouched. */
+    s_volume = s_diagnostic_saved_volume;
+    s_checked_mute_latched = s_diagnostic_saved_mute;
+    s_diagnostic_owned = false;
+    return ESP_OK;
+}
+
+/* Separate inactive Live lease; construction never enables speaker output. */
+esp_err_t bsp_audio_live_begin(uint32_t epoch, unsigned requested_user_volume,
+                               bool *cleanup_required) {
+    if (!cleanup_required) return ESP_ERR_INVALID_ARG;
+    *cleanup_required = false;
+    if (!epoch || requested_user_volume > 100) return ESP_ERR_INVALID_ARG;
+    if (s_live_owned || s_diagnostic_owned || s_render_owned ||
+        s_reference_restore_pending || s_codec_release_failed) return ESP_ERR_INVALID_STATE;
+    s_live_saved_volume = s_volume;
+    s_live_saved_hz = s_hz ? s_hz : 16000;
+    s_live_saved_bits = s_bits ? s_bits : 16;
+    s_live_saved_ch = s_ch ? s_ch : 1;
+    s_live_saved_mute = s_checked_mute_latched;
+    s_live_requested_volume = (uint8_t)requested_user_volume;
+    s_live_epoch = epoch;
+    s_live_owned = true;
+    s_live_ready = s_live_enabled = s_live_failed = s_live_cleanup_failed = false;
+    *cleanup_required = true;
+    s_checked_mute_latched = true;
+    s_volume = 0;
+    s_live_delegating = true;
+    esp_err_t e = bsp_audio_init();
+    if (e == ESP_OK) e = bsp_audio_wake();
+    if (e == ESP_OK) e = bsp_audio_set_volume_checked(0);
+    if (e == ESP_OK) e = bsp_audio_set_format(16000, 16, 1);
+    if (e == ESP_OK) e = bsp_audio_set_volume_checked(0);
+    if (e == ESP_OK) e = bsp_audio_reference_start(epoch);
+    if (e == ESP_OK) e = bsp_audio_set_volume_checked(0);
+    s_live_delegating = false;
+    s_live_ready = e == ESP_OK;
+    s_live_failed = e != ESP_OK;
+    return e;
+}
+
+static bool audio_live_reference_healthy(void) {
+    portENTER_CRITICAL(&s_tx_completion_lock);
+    bool healthy = s_render_owned && s_reference_mode && s_render.active &&
+                   !s_render.failed && s_capture.active && !s_capture.failed &&
+                   s_render.epoch == s_live_epoch && s_capture.epoch == s_live_epoch;
+    portEXIT_CRITICAL(&s_tx_completion_lock);
+    return healthy;
+}
+
+esp_err_t bsp_audio_live_enable_output(uint32_t epoch) {
+    if (!s_live_owned || epoch != s_live_epoch || !s_live_ready ||
+        s_live_enabled || s_live_failed || s_live_cleanup_failed) return ESP_ERR_INVALID_STATE;
+    if (!audio_live_reference_healthy()) {
+        s_live_failed = true;
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_live_delegating = true;
+    /* Requested volume is an upper bound, not permission to override a
+     * pre-existing checked mute/safety intent. Ordinary sleep preserves it. */
+    esp_err_t e = bsp_audio_set_volume_checked(s_live_saved_mute ? 0 : s_live_requested_volume);
+    /* I2C is not atomic with DMA callbacks: recheck health after register I/O.
+     * This is observed digital state, never an acoustic/timing guarantee. */
+    if (e == ESP_OK && !audio_live_reference_healthy()) e = ESP_FAIL;
+    if (e != ESP_OK) {
+        s_live_failed = true;
+        (void)bsp_audio_set_volume_checked(0);
+    } else s_live_enabled = true;
+    s_live_delegating = false;
+    return e;
+}
+
+esp_err_t bsp_audio_live_end(uint32_t epoch) {
+    if (!s_live_owned || epoch != s_live_epoch) return ESP_ERR_INVALID_STATE;
+    s_live_ready = s_live_enabled = false;
+    s_checked_mute_latched = true;
+    s_volume = 0;
+    s_live_delegating = true;
+    esp_err_t first = s_live_cleanup_failed ? ESP_FAIL : ESP_OK;
+    if (!s_initialized || s_codec_release_failed) first = ESP_FAIL;
+    if (s_dev && !s_sleeping && bsp_audio_set_volume_checked(0) != ESP_OK) first = ESP_FAIL;
+    if (bsp_audio_reference_stop() != ESP_OK) first = ESP_FAIL;
+    if (s_initialized && !s_sleeping && !s_render_owned && !s_reference_restore_pending) {
+        if (bsp_audio_set_format(s_live_saved_hz, s_live_saved_bits,
+                                 s_live_saved_ch) != ESP_OK ||
+            bsp_audio_set_volume_checked(0) != ESP_OK) first = ESP_FAIL;
+    }
+    if (bsp_audio_sleep() != ESP_OK) first = ESP_FAIL;
+    if (!s_render_owned && !s_capture.active) {
+        volatile uint8_t *raw = (volatile uint8_t *)s_capture.queue;
+        for (size_t i = 0; i < sizeof(s_capture.queue); ++i) raw[i] = 0;
+    }
+    if (!s_initialized || !s_sleeping || s_sleep_result != ESP_OK || s_dev ||
+        s_render_owned || s_reference_restore_pending || s_codec_release_failed ||
+        s_hz != s_live_saved_hz || s_bits != s_live_saved_bits ||
+        s_ch != s_live_saved_ch) first = ESP_FAIL;
+    s_live_delegating = false;
+    if (first != ESP_OK) {
+        s_live_cleanup_failed = s_live_failed = true;
+        return first; /* Retained ownership/quarantine until reboot. */
+    }
+    s_volume = s_live_saved_volume;
+    s_checked_mute_latched = s_live_saved_mute;
+    s_live_owned = false;
+    return ESP_OK;
+}
+
+#endif

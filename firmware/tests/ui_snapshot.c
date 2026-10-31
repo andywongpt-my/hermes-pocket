@@ -307,7 +307,8 @@ int main(int argc,char **argv){
  char reader_raw[769],reader_expected[769],reader_rebuilt[769],last_screen[769];
  const char piece[]="\xe6\xb8\xac\xe8\xa9\xa6 A\xf0\x9f\x99\x82\n";
  unsigned fill=0;while(fill+sizeof(piece)-1<=768){memcpy(reader_raw+fill,piece,sizeof(piece)-1);fill+=(unsigned)sizeof(piece)-1;}
- while(fill<768)reader_raw[fill++]='x';reader_raw[768]=0;reader_raw[12]=0;
+ while(fill<768)reader_raw[fill++]='x';
+ reader_raw[768]=0;reader_raw[12]=0;
  memcpy(reader_expected,reader_raw,sizeof reader_raw);for(unsigned i=0;i<768;i++)if((unsigned char)reader_expected[i]<32&&reader_expected[i]!='\n')reader_expected[i]=' ';
  v.reader_active=v.reader_has_page=v.reader_navigation=v.reader_has_next=true;v.reader_generation=1;v.reader_target=1;
  v.reader_page=0;v.reader_page_count=2;v.reader_utf8_bytes=768;v.task_result=reader_raw;v.reader_status="Full reply";

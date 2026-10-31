@@ -330,14 +330,17 @@ static int test_arguments(void){
 }
 int main(int argc,char **argv){
  cJSON_Hooks hooks={.malloc_fn=json_alloc,.free_fn=json_free};cJSON_InitHooks(&hooks);reset_fixture(992000);
- if(argc!=2)return 2;int error=0;
+ if(argc!=2)return 2;
+ int error=0;
  if(!strcmp(argv[1],"capabilities"))error=test_capabilities();
  else if(!strcmp(argv[1],"streams"))error=test_streams();
  else if(!strcmp(argv[1],"manifests"))error=test_manifests();
  else if(!strcmp(argv[1],"chunks"))error=test_chunks();
  else if(!strcmp(argv[1],"cancellation"))error=test_cancellation();
  else if(!strcmp(argv[1],"arguments"))error=test_arguments();else return 2;
- if(error)return error;if(live_json_allocations)return 3;puts("PASS: speech V2 SDK JSON/base64 serial contract");return 0;
+ if(error)return error;
+ if(live_json_allocations)return 3;
+ puts("PASS: speech V2 SDK JSON/base64 serial contract");return 0;
 }
 '''
 

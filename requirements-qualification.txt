@@ -1,0 +1,2 @@
+# Optional future approved Windows host only; no automatic install/import/open.
+pyserial==3.5

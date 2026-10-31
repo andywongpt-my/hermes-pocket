@@ -2,6 +2,12 @@
 #include "pocket_model.h"
 #include "pocket_setup.h"
 #include "pocket_voice.h"
+#if CONFIG_POCKET_QUALIFICATION
+#include "pocket_qualification_usb.h"
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+#include "pocket_live_admission.h"
+#endif
 #include "pocket_models_client.h"
 #include "pocket_ui.h"
 #include "pocket_usage_client.h"
@@ -27,7 +33,24 @@
 #include <time.h>
 #include <stdio.h>
 
-typedef struct { bsp_btn_t button; bsp_btn_ev_t event; } input;
+typedef struct { bsp_btn_t button; bsp_btn_ev_t event;
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC || CONFIG_POCKET_LIVE_APP_CALLER || CONFIG_POCKET_QUALIFICATION
+ uint64_t timestamp_ms;
+#endif
+#if CONFIG_POCKET_QUALIFICATION
+ uint32_t qualification_generation;
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+ uint32_t live_generation;
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ uint32_t nonce;
+#endif
+} input;
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+static atomic_uint diagnostic_event_nonce=ATOMIC_VAR_INIT(0);
+static atomic_bool diagnostic_wake_blocked=ATOMIC_VAR_INIT(false);
+#endif
 static QueueHandle_t events;
 static pocket_model model;
 static bool battery_ready,screen_off,wake_gesture;
@@ -128,7 +151,27 @@ static void render(void) {
  const pocket_task_state phase=tasks.count&&tasks.selected<tasks.count?tasks.entries[tasks.selected].state:POCKET_TASK_STATE_UNKNOWN;
  const bool selected_task=tasks.count&&tasks.selected<tasks.count;
  if(!model.audio_edit)model.volume=voice.volume;
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ pocket_offline_diagnostic_snapshot offline_diagnostic;
+ pocket_voice_diagnostic_read(&offline_diagnostic);
+#endif
+#if CONFIG_POCKET_QUALIFICATION
+ char qualification_title[40],qualification_detail[240],qualification_hint[100];
+ pocket_voice_qualification_format(qualification_title,sizeof qualification_title,
+   qualification_detail,sizeof qualification_detail,qualification_hint,sizeof qualification_hint);
+#endif
  const pocket_ui_view view={
+#if CONFIG_POCKET_QUALIFICATION
+  .qualification_mode=true,.qualification_locked=pocket_voice_qualification_locked(),
+  .qualification_title=qualification_title,.qualification_detail=qualification_detail,.qualification_hint=qualification_hint,
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+  .live_mode=true,.live_available=pocket_live_v2_device_admission_allowed(),
+  .live_cleanup_pending=pocket_voice_live_cleanup_pending(),
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+  .offline_diagnostic=&offline_diagnostic,
+#endif
   .page=model.page,.target=model.target,.usage=&usage,.usage_window=model.usage_window,.now=now,
   .tool=model.tool,.volume=voice.volume,.audio_edit=model.audio_edit,.alert_threshold=model.alert_threshold,.usd_floor_enabled=model.usd_floor_enabled,
   .model_choice=model.model_choice[model.target],.model_candidate=model.model_candidate,.model_apply_failed=model.model_apply_failed,
@@ -183,6 +226,9 @@ static bool set_awake(bool awake) {
  return error==ESP_OK;
 }
 static void enter_screen_off(void) {
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ atomic_store(&diagnostic_wake_blocked,true);
+#endif
  for(unsigned i=0;i<BSP_BTN_COUNT;i++)discard_gesture[i]=true;
  screen_off=true;set_awake(false);
  pocket_actions_screen_off(true);
@@ -213,7 +259,12 @@ static bool consume_wake_gesture(input value) {
  }
  if(wake_gesture){
   /* A long hold, multiple held keys, and their releases all belong to wake. */
-  if(value.event==BSP_BTN_RELEASE && !held_buttons)wake_gesture=false;
+  if(value.event==BSP_BTN_RELEASE && !held_buttons){
+   wake_gesture=false;
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+   atomic_store(&diagnostic_wake_blocked,false);
+#endif
+  }
   return true;
  }
  if(discard_gesture[value.button]){
@@ -224,8 +275,41 @@ static bool consume_wake_gesture(input value) {
  return false;
 }
 static void on_button(bsp_btn_t button,bsp_btn_ev_t event,void *unused) {
- (void)unused;input value={button,event};
+ (void)unused;input value={.button=button,.event=event};
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC || CONFIG_POCKET_LIVE_APP_CALLER || CONFIG_POCKET_QUALIFICATION
+ value.timestamp_ms=(uint64_t)(esp_timer_get_time()/1000);
+#endif
+#if CONFIG_POCKET_QUALIFICATION
+ value.qualification_generation=pocket_voice_qualification_button(button==BSP_BTN_OK,
+   event==BSP_BTN_PRESS,event==BSP_BTN_RELEASE,&value.timestamp_ms);
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+ /* Physical Stop precedes queueing and never borrows a session pointer. */
+ value.live_generation=pocket_voice_live_button(event==BSP_BTN_PRESS);
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ uint32_t nonce=atomic_load_explicit(&diagnostic_event_nonce,memory_order_relaxed);
+ /* One callback-task writer; never wrap/reuse a confirmation nonce.
+    Exhaustion disables only the diagnostic, never ordinary physical controls. */
+ if(nonce==UINT32_MAX){value.nonce=UINT32_MAX;pocket_voice_diagnostic_input_lost();}
+ else value.nonce=atomic_fetch_add_explicit(&diagnostic_event_nonce,1,memory_order_relaxed)+1;
+ pocket_voice_diagnostic_button(value.nonce!=UINT32_MAX && button==BSP_BTN_OK && !atomic_load(&diagnostic_wake_blocked),event==BSP_BTN_PRESS,value.timestamp_ms,value.nonce);
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC || CONFIG_POCKET_LIVE_APP_CALLER || CONFIG_POCKET_QUALIFICATION
+ if(!events || xQueueSend(events,&value,0)!=pdTRUE){
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+  pocket_voice_diagnostic_input_lost();
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+  pocket_voice_live_input_lost();
+#endif
+#if CONFIG_POCKET_QUALIFICATION
+  pocket_voice_qualification_input_lost();
+#endif
+ }
+#else
  if(events)xQueueSend(events,&value,0); /* Never block timer callback. */
+#endif
 }
 static void handle_input(input value){
  if((unsigned)value.button<BSP_BTN_COUNT)last_activity_ms=esp_timer_get_time()/1000;
@@ -249,14 +333,75 @@ static void handle_input(input value){
  if(value.button==BSP_BTN_OK && value.event==BSP_BTN_RELEASE)pocket_voice_release();
  pocket_setup_state setup;pocket_setup_read(&setup);if(setup.active)return;
  pocket_voice_read(&voice);
+#if CONFIG_POCKET_QUALIFICATION
+ if(model.page==POCKET_DIAGNOSTICS && value.button==BSP_BTN_OK && value.event==BSP_BTN_PRESS &&
+    pocket_voice_qualification_begin(value.timestamp_ms,value.qualification_generation)){
+  discard_gesture[BSP_BTN_OK]=true;redraw();return;
+ }
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ if(model.page==POCKET_DIAGNOSTICS && value.button==BSP_BTN_OK && value.event==BSP_BTN_PRESS &&
+    pocket_voice_diagnostic_begin(value.timestamp_ms,value.nonce)){
+  discard_gesture[BSP_BTN_OK]=true;redraw();return;
+ }
+ /* Stop was latched in the physical callback. Preserve Screen off's CLICK
+    during diagnostic cleanup rather than consuming it as a voice gesture. */
+#endif
+ bool owned_audio_screen_off=false;
+#if CONFIG_POCKET_QUALIFICATION
+ owned_audio_screen_off=model.page==POCKET_SCREEN_OFF && pocket_voice_qualification_active();
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+ owned_audio_screen_off=owned_audio_screen_off || (model.page==POCKET_SCREEN_OFF && pocket_voice_diagnostic_active());
+#endif
+#if CONFIG_POCKET_LIVE_APP_CALLER
+ owned_audio_screen_off=owned_audio_screen_off ||
+  (model.page==POCKET_SCREEN_OFF && pocket_voice_live_active());
+#endif
  if(value.button==BSP_BTN_UP && value.event==BSP_BTN_PRESS && voice.recording){
   pocket_voice_cancel();discard_gesture[BSP_BTN_UP]=discard_gesture[BSP_BTN_OK]=true;redraw();return;
  }
- if(value.button==BSP_BTN_OK && value.event==BSP_BTN_PRESS && voice.busy){
+ if(value.button==BSP_BTN_OK && value.event==BSP_BTN_PRESS && voice.busy && !owned_audio_screen_off){
   pocket_voice_cancel();discard_gesture[BSP_BTN_OK]=true;redraw();return;
  }
- if(value.button==BSP_BTN_OK && value.event==BSP_BTN_PRESS && model.page==POCKET_CHAT){pocket_reader_close();pocket_voice_begin_model(model.target,model.model_choice[model.target]);return;}
+ if(value.button==BSP_BTN_OK && value.event==BSP_BTN_PRESS && model.page==POCKET_CHAT){
+  pocket_reader_close();
+#if CONFIG_POCKET_LIVE_APP_CALLER
+  /* Consume the entire initial gesture even on refusal; no delayed CLICK may
+     fall into the legacy recording/model path. Release does not stop duplex. */
+  discard_gesture[BSP_BTN_OK]=true;
+  uint64_t now=(uint64_t)(esp_timer_get_time()/1000);
+  if(now>=value.timestamp_ms && now-value.timestamp_ms<=1000u)
+   (void)pocket_voice_live_begin(model.target,value.timestamp_ms,value.live_generation);
+  else pocket_voice_live_input_lost();
+  redraw();
+#else
+  pocket_voice_begin_model(model.target,model.model_choice[model.target]);
+#endif
+  return;
+ }
+#if CONFIG_POCKET_LIVE_APP_CALLER
+ /* The Live backend follows Hermes' configured default. Do not silently apply
+    the legacy per-turn model selector to this unrelated protocol. */
+ if(value.button==BSP_BTN_OK && model.page==POCKET_MODELS){
+  if(value.event==BSP_BTN_PRESS)discard_gesture[BSP_BTN_OK]=true;
+  redraw();return;
+ }
+#endif
  if(value.event==BSP_BTN_LONG && value.button==BSP_BTN_OK){
+#if CONFIG_POCKET_QUALIFICATION
+  if(model.page==POCKET_DIAGNOSTICS){
+   (void)pocket_voice_qualification_arm(value.timestamp_ms,value.qualification_generation);
+  }else
+#endif
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+  if(model.page==POCKET_DIAGNOSTICS){
+   const uint32_t nonce=atomic_load_explicit(&diagnostic_event_nonce,memory_order_relaxed);
+   const uint64_t now=(uint64_t)(esp_timer_get_time()/1000);
+   if(nonce!=UINT32_MAX && now>=value.timestamp_ms && now-value.timestamp_ms<=1000u)
+    (void)pocket_voice_diagnostic_arm(now,nonce);
+  }else
+#endif
   if(model.page==POCKET_STATUS)pocket_setup_request();
   else if(model.page==POCKET_TASKS)pocket_tasks_refresh(model.target);
   else if(model.page==POCKET_TOOLS){
@@ -288,6 +433,10 @@ static void handle_input(input value){
  redraw();
 }
 void app_main(void) {
+#if CONFIG_POCKET_QUALIFICATION
+ /* Boot-only driver/VFS ownership; failure leaves normal UI available. */
+ (void)pocket_qualification_usb_init();
+#endif
  pocket_clock_reset();
  pocket_init(&model);pocket_actions_init();events=xQueueCreate(16,sizeof(input));
  if(!events)return;
@@ -309,11 +458,34 @@ void app_main(void) {
  ESP_ERROR_CHECK(bsp_button_init(on_button,NULL));
  last_activity_ms=esp_timer_get_time()/1000;
  input value;
+#if CONFIG_POCKET_QUALIFICATION
+ uint64_t qualification_last_redraw=(uint64_t)(esp_timer_get_time()/1000);
+#endif
  for(;;) {
-  if(xQueueReceive(events,&value,pdMS_TO_TICKS(500))!=pdTRUE){
+#if CONFIG_POCKET_QUALIFICATION
+  /* One USB RX consumer. Keep heartbeat/Stop control independent of audio owner;
+     preserve the normal 500ms idle redraw cadence rather than redrawing at50Hz. */
+  pocket_voice_qualification_poll();
+  const unsigned input_wait_ms=20;
+#else
+  const unsigned input_wait_ms=500;
+#endif
+  if(xQueueReceive(events,&value,pdMS_TO_TICKS(input_wait_ms))!=pdTRUE){
    /* Recover safely if a full queue lost RELEASE: delayed actions stay blocked. */
-   if(wake_gesture && bsp_button_read_mv()>=BSP_BTN_MV_RELEASED_MIN){held_buttons=0;wake_gesture=false;}
-   check_screen_idle();redraw();continue;
+   if(wake_gesture && bsp_button_read_mv()>=BSP_BTN_MV_RELEASED_MIN){held_buttons=0;wake_gesture=false;
+#if CONFIG_POCKET_OFFLINE_DIAGNOSTIC
+    atomic_store(&diagnostic_wake_blocked,false);
+#endif
+   }
+#if CONFIG_POCKET_QUALIFICATION
+   const uint64_t qualification_now=(uint64_t)(esp_timer_get_time()/1000);
+   if(qualification_now<qualification_last_redraw || qualification_now-qualification_last_redraw>=500){
+    qualification_last_redraw=qualification_now;check_screen_idle();redraw();
+   }
+#else
+   check_screen_idle();redraw();
+#endif
+   continue;
   }
   handle_input(value);
  }

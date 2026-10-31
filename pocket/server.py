@@ -80,11 +80,12 @@ class _ServerOwner:
     def __init__(self):
         self.lock=threading.Lock()
         self.spools=None;self.voices={};self.server=None;self.timing=None
-        self.closed=False
+        self.closed=False;self.live=None
 
     def close(self):
         with self.lock:
             if self.closed:return
+            if self.live is not None:self.live.close()
             if self.server is not None:ThreadingHTTPServer.server_close(self.server)
             # V2 provider/decoder work must finish before closing an adapter's
             # resident STT. Keep leases until every legacy voice has also reaped.
@@ -104,7 +105,7 @@ class _ServerOwner:
             self.closed=True
 
 
-def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,decoder=decode_speech_pcm,usage_cache=None,transport_diagnostic=None,runtime_usage=None,reply_decoder=decode_speech_to_file,reply_spool_root=None):
+def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,decoder=decode_speech_pcm,usage_cache=None,transport_diagnostic=None,runtime_usage=None,reply_decoder=decode_speech_to_file,reply_spool_root=None,live=None):
     if host!='127.0.0.1' and (not tls or host in ('0.0.0.0','::')):raise ValueError('LAN ingress requires TLS and a specific interface address')
     if not tokens or any(not isinstance(k,str) or not k for k in tokens):raise ValueError('authentication required')
     tokens=dict(tokens)
@@ -135,19 +136,25 @@ def make_server(service,tokens,*,host='127.0.0.1',port=0,speech=None,tls=None,de
             raise ValueError('runtime usage requires its own target database')
     if transport_diagnostic is None:
         transport_diagnostic=FileArmedTransport(Path(__file__).resolve().parent.parent/ARM_FILENAME,set(tokens.values()))
+    live={} if live is None else dict(live)
+    if any(name not in targets for name in live):raise ValueError('unknown Live target')
     owner=_ServerOwner()
+    if live:
+        from .live_websocket import LiveEndpoint,LiveRegistry
+        if any(not isinstance(endpoint,LiveEndpoint) for endpoint in live.values()):raise ValueError('explicit Live endpoints required')
+        owner.live=LiveRegistry()
     try:
         return _make_owned_server(targets,tokens,legacy=legacy,host=host,port=port,
             speech=speech,context=context,decoder=decoder,usage_cache=usage_cache,
             transport_diagnostic=transport_diagnostic,runtime_usage=runtime_usage,
-            reply_decoder=reply_decoder,reply_spool_root=reply_spool_root,owner=owner)
+            reply_decoder=reply_decoder,reply_spool_root=reply_spool_root,owner=owner,live=live)
     except BaseException:
         owner.close()
         raise
 
 
 def _make_owned_server(targets,tokens,*,legacy,host,port,speech,context,decoder,
-        usage_cache,transport_diagnostic,runtime_usage,reply_decoder,reply_spool_root,owner):
+        usage_cache,transport_diagnostic,runtime_usage,reply_decoder,reply_spool_root,owner,live):
     chats={name:ChatService(svc) for name,svc in targets.items()}
     # Lease before VoiceJobs' legacy recovery, so a second server cannot reset
     # another instance's active markers or remove its PCM.
@@ -189,6 +196,8 @@ def _make_owned_server(targets,tokens,*,legacy,host,port,speech,context,decoder,
             self.body_consumed=False
             length=0
             try:
+                if urlsplit(self.path).path.endswith('/live') and len(self.headers.get_all('Authorization',[]))>1:
+                    return self.respond(400,{'error':'duplicate authorization'})
                 auth=self.headers.get('Authorization','');device=None
                 for token,name in tokens.items():
                     if hmac.compare_digest(auth.encode(),('Bearer '+token).encode()):device=name
@@ -230,6 +239,8 @@ def _make_owned_server(targets,tokens,*,legacy,host,port,speech,context,decoder,
                 except ValueError:return self.respond(400,{'error':'invalid length'})
                 if length<0:return self.respond(400,{'error':'invalid length'})
                 if length>MAX_FRAME:return self.respond(413,{'error':'frame too large'})
+                if urlsplit(self.path).path.endswith('/live') and length:
+                    return self.respond(400,{'error':'live upgrade cannot contain a body'})
                 read_started=time.perf_counter_ns()
                 try:raw=self.rfile.read(length) if length else b''
                 finally:self.body_read_us=(time.perf_counter_ns()-read_started)//1000
@@ -248,6 +259,12 @@ def _make_owned_server(targets,tokens,*,legacy,host,port,speech,context,decoder,
                     parts=parts[2:];route='/'+('/'.join(parts))
                 elif legacy:target='default';selected=targets[target]
                 else:return self.respond(400,{'error':'explicit target required'})
+                if route=='/live':
+                    if self.command!='GET' or parsed.query or parsed.fragment or parsed.path!='/targets/'+target+'/live':
+                        return self.respond(400,{'error':'invalid live upgrade'})
+                    if self.headers.get_all('Origin',[]):return self.respond(403,{'error':'browser origin forbidden'})
+                    if target not in live:return self.respond(503,{'error':'live unavailable'})
+                    return owner.live.serve(self,live[target],selected,target,device)
                 if self.command=='GET' and route=='/status':
                     try:
                         selected.backend.check() if hasattr(selected.backend,'check') else None
